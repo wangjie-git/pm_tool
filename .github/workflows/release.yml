@@ -39,31 +39,38 @@ jobs:
           releaseDraft: false
           prerelease: false
 
-      # 构建机的系统编码不支持非 ASCII 文件名，中文产品名会被替换成点号，
-      # 这里通过 GitHub API 把安装包重命名为正确的中文名。
-      # 注意：产品名必须从 tauri.conf.json 读取（UTF-8 文件），不能在脚本里写中文
-      # 字面量——run 脚本里的非 ASCII 字符在构建机上会被损坏。
-      - name: 修正安装包文件名
+      # GitHub 的 Release 资产文件名不支持非 ASCII 字符（会静默替换成点号），
+      # 所以安装包文件名统一用 ASCII，中文展示放在资产 label 里（label 支持中文）。
+      # 中文一律从 tauri.conf.json 读取，脚本内不要写中文字面量（run 脚本的非
+      # ASCII 字符在构建机上可能被损坏）。
+      - name: 规范化 Release 资产名称
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INSTALLER_BASE: PMTodoAssistant
         shell: pwsh
         run: |
+          function Assert-Ok($what) {
+            if ($LASTEXITCODE -ne 0) { Write-Host "::error::$what failed"; exit 1 }
+          }
           $conf = Get-Content -Raw -Encoding UTF8 src-tauri/tauri.conf.json | ConvertFrom-Json
-          $target = "$($conf.productName)_$($conf.version)_x64-setup.exe"
-          Write-Host "target asset name: $target"
           $rel = gh api "repos/$env:GITHUB_REPOSITORY/releases/latest" | ConvertFrom-Json
-          # 先删掉与目标同名的旧资产（同版本重复发布会 422 冲突）
-          foreach ($a in @($rel.assets)) {
-            if ($a.name -eq $target) {
-              gh api -X DELETE "repos/$env:GITHUB_REPOSITORY/releases/assets/$($a.id)" | Out-Null
-              Write-Host "deleted old asset: $($a.name)"
-            }
+          Assert-Ok "fetch release"
+          $ver = $rel.tag_name.TrimStart("v")
+          $target = "$($env:INSTALLER_BASE)_$($ver)_x64-setup.exe"
+          $label = "$($conf.productName) v$ver (Windows x64)"
+          Write-Host "target name: $target / label: $label"
+          $asset = $rel.assets | Where-Object { $_.name -like '*setup.exe' } | Select-Object -First 1
+          if (-not $asset) { Write-Host "::error::no setup.exe asset found"; exit 1 }
+          if ($asset.name -eq $target) {
+            Write-Host "asset already named correctly"
+          } else {
+            gh api -X PATCH "repos/$env:GITHUB_REPOSITORY/releases/assets/$($asset.id)" -f name="$target" | Out-Null
+            Assert-Ok "rename asset"
+            Write-Host "renamed: $($asset.name) -> $target"
           }
-          # 再把编码损坏的安装包重命名为正确名字
-          $rel2 = gh api "repos/$env:GITHUB_REPOSITORY/releases/latest" | ConvertFrom-Json
-          foreach ($a in @($rel2.assets)) {
-            if ($a.name -like '*setup.exe' -and $a.name -ne $target) {
-              gh api -X PATCH "repos/$env:GITHUB_REPOSITORY/releases/assets/$($a.id)" -f name="$target" | Out-Null
-              Write-Host "renamed: $($a.name) -> $target"
-            }
-          }
+          $body = @{ label = $label } | ConvertTo-Json
+          $tmp = New-TemporaryFile
+          Set-Content -Path $tmp -Value $body -Encoding UTF8
+          gh api -X PATCH "repos/$env:GITHUB_REPOSITORY/releases/assets/$($asset.id)" --input $tmp -H "Content-Type: application/json" | Out-Null
+          Assert-Ok "set asset label"
+          Write-Host "label set: $label"
