@@ -1,0 +1,40 @@
+name: 打包发布 Release
+
+# 触发方式：
+#  1. 推送 v 开头的标签（推荐）：git tag v1.1.0 && git push origin v1.1.0
+#  2. 手动触发：仓库 Actions 页面 → 选本工作流 → Run workflow
+# 说明：Release 的版本号取自 src-tauri/tauri.conf.json 的 version，
+#       请保证 tag 与该 version 保持一致（tag 需以 v 开头，如 v1.1.0）。
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust 编译缓存
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: 构建并上传到 Release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: v__VERSION__
+          releaseName: 'PM 待办助手 v__VERSION__'
+          releaseBody: 'Windows 安装包见下方 Assets，下载 *_x64-setup.exe 运行即可。数据仅存本机。'
+          releaseDraft: false
+          prerelease: false

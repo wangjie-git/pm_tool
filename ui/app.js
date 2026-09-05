@@ -66,29 +66,6 @@ function makeMockBackend() {
         db.meta[args.key] = args.value; persist(); return null;
       case 'backup_now':
         return null;
-      case 'wechat_list_chats':
-        return JSON.stringify([
-          { wxid: 'mock1', display: 'HiC2026项目群' },
-          { wxid: 'mock2', display: '供应商拉通群' },
-          { wxid: 'mock3', display: '客户对接群' }
-        ]);
-      case 'wechat_read_chat': {
-        const d = args.days || 2;
-        const base = new Date(); base.setDate(base.getDate() - (d > 2 ? 1 : 0));
-        const fmt = x => x.getFullYear() + '-' + String(x.getMonth() + 1).padStart(2, '0') + '-' + String(x.getDate()).padStart(2, '0');
-        const mk = (dayOff, tm, dir, content) => {
-          const dt = new Date(); dt.setDate(dt.getDate() - dayOff);
-          return { time: fmt(dt) + ' ' + tm, _ts: 0, direction: dir, type: '文本', event: null, content: content, is_text: true, is_system: false };
-        };
-        return JSON.stringify({ chats: [{ wxid: 'mock', display: 'HiC2026项目群', messages: [
-          mk(1, '09:12:00', '[对方]', '麻烦今天下班前把验收方案初稿发我一下'),
-          mk(1, '09:30:00', '[我]', '好的，我下午整理'),
-          mk(0, '10:02:00', '[对方]', '@张三 闸机联调环境明天能准备好吗'),
-          mk(0, '10:05:00', '[对方]', '另外下周三之前需要供应商把茶歇点位图确认掉'),
-          mk(0, '10:20:00', '[对方]', '[图片]'),
-          mk(0, '11:00:00', '[对方]', '展区人流量预估数据麻烦今天同步一下')
-        ] }] });
-      }
       default:
         throw new Error('浏览器预览模式不支持：' + cmd);
     }
@@ -773,162 +750,6 @@ function copyReport() {
   toast(ok ? '已复制，去微信/邮件粘贴即可' : '复制失败，请手动全选复制', ok ? 'ok' : 'err');
 }
 
-/* ============ 微信待办导入 ============ */
-let wxChats = [];
-let wxCurChat = null;
-let wxMessages = [];
-const WX_TODO_RE = /(麻烦|辛苦|请|尽快|尽快|今天|明天|后天|大后天|周[一二三四五六日天]|月|截止|之前|以前|确认|反馈|验收|联调|上线|部署|修复|跟进|待办|安排|准备|需要|落实|回复|同步|提交|发送|评审|盖章|付款|合同|报价|预算)/;
-
-async function openWechatImport() {
-  openModal('mw-wechat');
-  $id('wx-due').value = TODAY;
-  $id('wx-config').hidden = true;
-  $id('wx-main').hidden = false;
-  $id('wx-chats').innerHTML = '<div class="wx-loading">正在加载会话列表…</div>';
-  $id('wx-msgs').innerHTML = '<div class="empty">左侧选择一个会话后读取消息</div>';
-  $id('wx-cur-chat').textContent = '选择左侧会话';
-  try {
-    const raw = await invoke('wechat_list_chats');
-    wxChats = JSON.parse(raw);
-    if (!Array.isArray(wxChats)) wxChats = [];
-    renderWxChats('');
-  } catch (e) {
-    wxChats = [];
-    $id('wx-chats').innerHTML = '';
-    $id('wx-config').hidden = false;
-    $id('wx-main').hidden = true;
-    $id('wx-python').value = (await invoke('get_meta', { key: 'wechatPython' })) || '';
-    $id('wx-dir').value = (await invoke('get_meta', { key: 'wechatDir' })) || '';
-  }
-}
-function renderWxChats(kw) {
-  const list = wxChats.filter(c => !kw || (c.display || '').indexOf(kw) >= 0 || (c.wxid || '').indexOf(kw) >= 0);
-  $id('wx-chats').innerHTML = list.slice(0, 500).map(c =>
-    '<div class="wx-chat ' + (wxCurChat && wxCurChat.display === c.display ? 'on' : '') + '" onclick="pickWxChat(this, ' + JSON.stringify(c.display || c.wxid).replace(/"/g, '&quot;') + ')">'
-    + '<span class="nm">' + esc(c.display || c.wxid) + '</span></div>').join('')
-    || '<div class="empty">无匹配会话</div>';
-}
-async function pickWxChat(el, name) {
-  wxCurChat = { display: name };
-  document.querySelectorAll('.wx-chat').forEach(x => x.classList.remove('on'));
-  el.classList.add('on');
-  await loadWxMessages();
-}
-async function loadWxMessages() {
-  if (!wxCurChat) return;
-  const days = +$id('wx-days').value || 2;
-  $id('wx-msgs').innerHTML = '<div class="wx-loading">正在读取「' + esc(wxCurChat.display) + '」最近 ' + days + ' 天消息…（大群可能需要十几秒）</div>';
-  $id('wx-cur-chat').textContent = wxCurChat.display;
-  try {
-    const raw = await invoke('wechat_read_chat', { contact: wxCurChat.display, days: days });
-    const data = JSON.parse(raw);
-    wxMessages = [];
-    (data.chats || []).forEach(c => (c.messages || []).forEach(m => wxMessages.push(m)));
-    wxMessages.sort((a, b) => (a.time || '') < (b.time || '') ? -1 : 1);
-    renderWxMessages();
-  } catch (e) {
-    $id('wx-msgs').innerHTML = '<div class="empty">读取失败：' + esc(e && e.message || e) + '</div>';
-  }
-}
-function isWxTodo(m) {
-  return m.is_text && !m.is_system && m.content && WX_TODO_RE.test(m.content);
-}
-function renderWxMessages() {
-  if (!wxMessages.length) {
-    $id('wx-msgs').innerHTML = '<div class="empty">该时间段没有消息</div>';
-    updateWxCount();
-    return;
-  }
-  const smart = $id('wx-smart').checked;
-  $id('wx-msgs').innerHTML = wxMessages.map((m, i) => {
-    const sys = m.is_system || !m.is_text;
-    const sel = !sys && document.getElementById('wxm-' + i) ? document.getElementById('wxm-' + i).checked : (smart && isWxTodo(m));
-    return '<div class="wx-msg ' + (sys ? 'sys' : '') + ' ' + (sel ? 'sel' : '') + '" onclick="toggleWxMsg(' + i + ')">'
-      + '<input type="checkbox" id="wxm-' + i + '" ' + (sel ? 'checked' : '') + ' ' + (sys ? 'disabled' : '') + ' onclick="event.stopPropagation()">'
-      + '<div class="m-body">'
-      + '<div class="m-meta"><span class="who ' + (m.direction === '[我]' ? 'me' : '') + '">' + esc(m.direction || '') + '</span> ' + esc(m.time || '') + (isWxTodo(m) && !sys ? '<span class="m-todo">疑似待办</span>' : '') + '</div>'
-      + '<div class="m-content">' + (m.is_text ? esc(m.content || '') : '[' + esc(m.type || '非文本') + ']') + '</div>'
-      + '</div></div>';
-  }).join('');
-  updateWxCount();
-}
-function toggleWxMsg(i) {
-  if (wxMessages[i].is_system || !wxMessages[i].is_text) return;
-  const cb = document.getElementById('wxm-' + i);
-  cb.checked = !cb.checked;
-  cb.closest('.wx-msg').classList.toggle('sel', cb.checked);
-  updateWxCount();
-}
-function updateWxCount() {
-  let n = 0;
-  wxMessages.forEach((m, i) => {
-    const cb = document.getElementById('wxm-' + i);
-    if (cb && cb.checked) n++;
-  });
-  $id('wx-count').textContent = '已选 ' + n + ' 条';
-  $id('wx-convert').textContent = '转为任务（' + n + '）';
-}
-function msgDateHint(content) {
-  const rel = { '今天': 0, '明天': 1, '后天': 2, '大后天': 3 };
-  const m1 = content.match(/(大后天|后天|明天|今天)/);
-  if (m1) return addDays(TODAY, rel[m1[1]]);
-  const m2 = content.match(/(下周|本周|)?周([一二三四五六日天])/);
-  if (m2) {
-    const map = { '一': 1, '二': 2, '三': 3, '四': 4, '五': 5, '六': 6, '日': 7, '天': 7 };
-    const target = map[m2[2]];
-    const curDow = new Date().getDay() || 7;
-    let delta = m2[1] === '下周' ? (8 - curDow) + (target - 1) : (target - curDow);
-    if (delta <= 0) delta += 7;
-    return addDays(TODAY, delta);
-  }
-  const m3 = content.match(/(\d{1,2})月(\d{1,2})日/);
-  if (m3) {
-    const y = new Date().getFullYear();
-    const d = y + '-' + pad(+m3[1]) + '-' + pad(+m3[2]);
-    return d < TODAY ? (y + 1) + '-' + pad(+m3[1]) + '-' + pad(+m3[2]) : d;
-  }
-  return null;
-}
-async function convertWxMessages() {
-  const p = curProject(); if (!p) return;
-  const defaultOwner = $id('wx-owner').value.trim() || '我方';
-  const fallbackDue = $id('wx-due').value || TODAY;
-  const selected = [];
-  wxMessages.forEach((m, i) => {
-    const cb = document.getElementById('wxm-' + i);
-    if (cb && cb.checked) selected.push(m);
-  });
-  if (!selected.length) { toast('先勾选要转换的消息', 'err'); return; }
-  try {
-    for (const m of selected) {
-      let content = (m.content || '').trim();
-      const mention = content.match(/@([^\s@,:，。]+)/);
-      const owner = mention ? mention[1].replace(/\d{5,}$/, '') : defaultOwner;
-      const due = msgDateHint(content) || fallbackDue;
-      let title = content.replace(/@[^\s@,:，。]+/g, ' ').replace(/\s+/g, ' ').trim();
-      if (title.length > 60) title = title.slice(0, 60) + '…';
-      if (!title) title = '[图片/非文本] ' + (m.time || '');
-      const note = '来自微信「' + (wxCurChat ? wxCurChat.display : '') + '」' + (m.time || '') + '\n原文：' + content;
-      await persistTask({
-        id: 0, projectId: p.id, title: title, due: due, owner: owner, pri: 'P1',
-        status: 'todo', doneAt: '', risk: false, repeat: '', note: note, createdAt: TODAY, sortOrder: 0, checklistJson: '[]'
-      });
-    }
-    closeModal('mw-wechat');
-    render();
-    toast('已从微信导入 ' + selected.length + ' 条任务', 'ok');
-  } catch (e) { toastErr('导入失败', e); }
-}
-async function saveWxCfg() {
-  try {
-    await invoke('set_meta', { key: 'wechatPython', value: $id('wx-python').value.trim() });
-    await invoke('set_meta', { key: 'wechatDir', value: $id('wx-dir').value.trim() });
-    $id('wx-config').hidden = true;
-    $id('wx-main').hidden = false;
-    openWechatImport();
-  } catch (e) { toastErr('保存配置失败', e); }
-}
-
 /* ============ 备份 / 导入 / CSV ============ */
 async function exportBackup() {
   let path = null;
@@ -1072,7 +893,6 @@ function bindEvents() {
   $id('btnExport').onclick = exportBackup;
   $id('btnImport').onclick = importBackup;
   $id('btnCsv').onclick = exportCsv;
-  $id('btnWechat').onclick = openWechatImport;
   $id('projName').onclick = () => { const p = curProject(); if (p) openProjectSettings(p.id); };
   $id('btnHelp').onclick = () => { const h = $id('helpBox'); h.hidden = !h.hidden; };
   $id('btnQuickAdd').onclick = quickAdd;
@@ -1102,13 +922,6 @@ function bindEvents() {
   $id('r-copy').onclick = copyReport;
   $id('r-close').onclick = () => closeModal('mw-report');
 
-  $id('wx-chat-filter').addEventListener('input', e => renderWxChats(e.target.value.trim()));
-  $id('wx-load').onclick = loadWxMessages;
-  $id('wx-smart').onchange = renderWxMessages;
-  $id('wx-convert').onclick = convertWxMessages;
-  $id('wx-close').onclick = () => closeModal('mw-wechat');
-  $id('wx-save-cfg').onclick = saveWxCfg;
-
   $id('c-ok').onclick = () => answerConfirm(true);
   $id('c-cancel').onclick = () => answerConfirm(false);
   $id('pr-ok').onclick = () => answerPrompt($id('pr-input').value.trim());
@@ -1117,7 +930,7 @@ function bindEvents() {
     if (e.key === 'Enter') answerPrompt($id('pr-input').value.trim());
   });
 
-  ['mw-task', 'mw-proj', 'mw-report', 'mw-wechat', 'mw-confirm', 'mw-prompt'].forEach(wid => {
+  ['mw-task', 'mw-proj', 'mw-report', 'mw-confirm', 'mw-prompt'].forEach(wid => {
     $id(wid).addEventListener('mousedown', e => {
       if (e.target === $id(wid)) {
         if (wid === 'mw-confirm') answerConfirm(false);
@@ -1131,7 +944,7 @@ function bindEvents() {
     const tag = (e.target.tagName || '').toLowerCase();
     const typing = tag === 'input' || tag === 'textarea' || tag === 'select';
     if (e.key === 'Escape') {
-      const open = ['mw-prompt', 'mw-confirm', 'mw-task', 'mw-proj', 'mw-report', 'mw-wechat'].find(w => !$id(w).hidden);
+      const open = ['mw-prompt', 'mw-confirm', 'mw-task', 'mw-proj', 'mw-report'].find(w => !$id(w).hidden);
       if (open === 'mw-prompt') answerPrompt(null);
       else if (open === 'mw-confirm') answerConfirm(false);
       else if (open) closeModal(open);

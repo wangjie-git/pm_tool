@@ -14,11 +14,6 @@
       <div class="brand-txt"><b>PM 待办助手</b><small>本地项目管理 v1.1</small></div>
     </div>
 
-    <button id="btnWechat" class="wx-btn" title="从微信群聊提取待办事项">
-      <span class="wx-ico">💬</span>
-      <span class="wx-txt"><b>微信待办导入</b><small>从聊天记录提取任务</small></span>
-    </button>
-
     <div class="side-label"><span>项目</span><button id="btnNewProj" title="新建项目">＋</button></div>
     <nav id="projNav"></nav>
     <div id="archWrap"></div>
@@ -158,58 +153,6 @@
       <span class="flex1"></span>
       <button class="btn ghost" id="r-close">收起</button>
       <button class="btn green" id="r-copy">复制全文</button>
-    </div>
-  </div>
-</div>
-
-<!-- 微信待办导入 -->
-<div class="mwrap" id="mw-wechat" hidden>
-  <div class="modal xwide">
-    <h3>💬 微信待办导入 <span class="hint-inline">从本地解密的微信聊天记录中勾选消息，一键转为任务</span></h3>
-    <div id="wx-config" hidden>
-      <p class="cmsg">未找到微信解密工具。请先完成 wechat-decrypt 解密，或在下方填写正确路径：</p>
-      <label>Python 解释器（venv）</label>
-      <input type="text" id="wx-python" placeholder="C:\Users\MSI\.codex\tools\wechat-decrypt\.venv\Scripts\python.exe">
-      <label>wechat-decrypt 工具目录</label>
-      <input type="text" id="wx-dir" placeholder="C:\Users\MSI\.codex\tools\wechat-decrypt">
-      <div class="mfoot"><span class="flex1"></span><button class="btn blue" id="wx-save-cfg">保存并重试</button></div>
-    </div>
-    <div id="wx-main">
-      <div class="wx-layout">
-        <div class="wx-left">
-          <input type="text" id="wx-chat-filter" placeholder="🔍 搜索会话">
-          <div id="wx-chats" class="wx-chats"></div>
-        </div>
-        <div class="wx-right">
-          <div class="wx-toolbar">
-            <span id="wx-cur-chat">选择左侧会话</span>
-            <span class="flex1"></span>
-            <select id="wx-days">
-              <option value="1">最近 1 天</option>
-              <option value="2" selected>最近 2 天</option>
-              <option value="3">最近 3 天</option>
-              <option value="7">最近 7 天</option>
-            </select>
-            <button class="btn ghost" id="wx-load">读取</button>
-            <label class="ck"><input type="checkbox" id="wx-smart" checked> 智能预选待办</label>
-          </div>
-          <div id="wx-msgs" class="wx-msgs"><div class="empty">左侧选择一个会话后读取消息</div></div>
-          <div class="wx-foot">
-            <label>负责人默认</label>
-            <input type="text" id="wx-owner" value="我方" style="width:90px">
-            <label>截止</label>
-            <input type="date" id="wx-due">
-            <span class="flex1"></span>
-            <span id="wx-count" class="hint">已选 0 条</span>
-            <button class="btn blue" id="wx-convert">转为任务（0）</button>
-          </div>
-        </div>
-      </div>
-      <div class="mfoot">
-        <span class="hint">转换规则：标题取消息前 40 字；备注保留原文与时间；@某人 自动设为负责人；"明天/周X" 自动识别截止日</span>
-        <span class="flex1"></span>
-        <button class="btn ghost" id="wx-close">关闭</button>
-      </div>
     </div>
   </div>
 </div>

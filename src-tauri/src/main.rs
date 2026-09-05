@@ -362,78 +362,6 @@ fn backup_now(app: tauri::AppHandle, db: State<Db>) -> Result<String, String> {
     backup_to_dir(&conn, &dir)
 }
 
-/* ---------- 微信集成：调用 wechat-decrypt 的查询脚本 ---------- */
-
-fn wechat_cfg(db: &Db) -> (String, String) {
-    let mut py = r"C:\Users\MSI\.codex\tools\wechat-decrypt\.venv\Scripts\python.exe".to_string();
-    let mut dir = r"C:\Users\MSI\.codex\tools\wechat-decrypt".to_string();
-    if let Ok(conn) = db.0.lock() {
-        if let Ok(v) = conn.query_row(
-            "SELECT value FROM meta WHERE key='wechatPython'",
-            [],
-            |r| r.get::<_, String>(0),
-        ) {
-            if !v.trim().is_empty() {
-                py = v;
-            }
-        }
-        if let Ok(v) = conn.query_row(
-            "SELECT value FROM meta WHERE key='wechatDir'",
-            [],
-            |r| r.get::<_, String>(0),
-        ) {
-            if !v.trim().is_empty() {
-                dir = v;
-            }
-        }
-    }
-    (py, dir)
-}
-
-fn run_python(py: &str, dir: &str, args: &[&str]) -> Result<String, String> {
-    use std::process::Command;
-    if !PathBuf::from(py).exists() {
-        return Err(
-            "未找到微信查询 Python：请先完成 wechat-decrypt 解密，或在 设置 里配置正确的路径".into(),
-        );
-    }
-    let mut cmd = Command::new(py);
-    cmd.current_dir(dir).args(args);
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
-    }
-    let out = cmd.output().map_err(|e| format!("启动查询进程失败：{}", e))?;
-    if !out.status.success() {
-        let err = String::from_utf8_lossy(&out.stderr).to_string();
-        let last = err.lines().last().unwrap_or("未知错误").to_string();
-        return Err(format!("微信查询失败：{}", last));
-    }
-    Ok(String::from_utf8_lossy(&out.stdout).to_string())
-}
-
-#[tauri::command]
-async fn wechat_list_chats(db: State<'_, Db>) -> Result<String, String> {
-    let (py, dir) = wechat_cfg(&db);
-    tauri::async_runtime::spawn_blocking(move || {
-        run_python(&py, &dir, &["scripts/common/query.py", "list", "--json"])
-    })
-    .await
-    .map_err(|e| e.to_string())?
-}
-
-#[tauri::command]
-async fn wechat_read_chat(db: State<'_, Db>, contact: String, days: i64) -> Result<String, String> {
-    let (py, dir) = wechat_cfg(&db);
-    tauri::async_runtime::spawn_blocking(move || {
-        let d = days.to_string();
-        run_python(&py, &dir, &["scripts/common/query.py", "read", &contact, "-d", &d, "--json"])
-    })
-    .await
-    .map_err(|e| e.to_string())?
-}
-
 /* ---------- 启动通知 ---------- */
 
 fn startup_notify(h: &tauri::AppHandle) {
@@ -638,9 +566,7 @@ fn main() {
             set_meta,
             save_text_file,
             read_text_file,
-            backup_now,
-            wechat_list_chats,
-            wechat_read_chat
+            backup_now
         ])
         .on_window_event(|window, event| match event {
             // 关闭窗口 = 隐藏到托盘，退出走托盘菜单
