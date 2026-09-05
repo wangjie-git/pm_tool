@@ -1,0 +1,22 @@
+# Rust / Tauri 构建产物
+src-tauri/target/
+src-tauri/gen/schemas/
+
+# 便携 MSVC 工具链（体积大，本地自行安装）
+tools/msvc-portable/
+
+# 微信相关数据（含个人隐私，禁止提交）
+tools/wx_list.json
+tools/wx_read.json
+
+# Node / 前端
+node_modules/
+dist/
+
+# 系统与编辑器
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+*.log

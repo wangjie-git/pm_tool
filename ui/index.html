@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PM 待办助手</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div id="app">
+  <aside id="sidebar">
+    <div class="brand">
+      <div class="logo">✔</div>
+      <div class="brand-txt"><b>PM 待办助手</b><small>本地项目管理 v1.1</small></div>
+    </div>
+
+    <button id="btnWechat" class="wx-btn" title="从微信群聊提取待办事项">
+      <span class="wx-ico">💬</span>
+      <span class="wx-txt"><b>微信待办导入</b><small>从聊天记录提取任务</small></span>
+    </button>
+
+    <div class="side-label"><span>项目</span><button id="btnNewProj" title="新建项目">＋</button></div>
+    <nav id="projNav"></nav>
+    <div id="archWrap"></div>
+    <div class="side-foot">
+      <div class="foot-btns">
+        <button id="btnTheme" title="切换明暗主题">🌙</button>
+        <button id="btnExport" title="导出 JSON 备份文件">备份</button>
+        <button id="btnImport" title="导入 JSON 备份（覆盖当前数据）">导入</button>
+        <button id="btnCsv" title="导出当前项目为 CSV，可用 Excel 打开">CSV</button>
+      </div>
+      <small>数据存于本机 SQLite · 每日自动备份</small>
+      <small class="kbd-hint">N 新建 · 1/2/3 切换视图 · / 搜索</small>
+    </div>
+  </aside>
+
+  <main id="main">
+    <header id="topbar">
+      <div class="hrow">
+        <h1 id="projName" title="点击打开项目设置">—</h1>
+        <div class="tabs" id="viewTabs">
+          <button data-view="list" class="on">☰ 列表</button>
+          <button data-view="kanban">▦ 看板</button>
+          <button data-view="stats">📊 统计</button>
+        </div>
+        <span class="flex1"></span>
+        <input id="search" type="text" placeholder="搜索，或 @负责人 !P0 #风险 筛选（/）">
+        <button class="btn green" onclick="openReport('day')">日报</button>
+        <button class="btn teal" onclick="openReport('week')">周报</button>
+      </div>
+      <div class="hrow sub">
+        <div id="countdown"></div>
+        <span class="flex1"></span>
+        <div id="statsbar"></div>
+      </div>
+      <div class="quickadd">
+        <input id="quick" type="text" placeholder="快速添加：明天 提交验收方案 @张三 !P0 #风险 #每日">
+        <button id="btnHelp" title="快速添加语法帮助">?</button>
+        <button class="btn blue" id="btnQuickAdd">＋ 添加</button>
+      </div>
+      <div id="helpBox" hidden>
+        <b>快速添加语法</b>　日期：<code>今天 / 明天 / 后天 / 大后天 / 下周三 / +3天 / 2026-09-14</code>
+        ｜ 负责人：<code>@张三</code>　优先级：<code>!P0 !P1 !P2</code>
+        ｜ 标记：<code>#风险</code> <code>#每日</code><br>
+        示例：<code>下周三 闸机联调 @李四 !P0 #风险</code>　省略日期默认今天，省略负责人默认"我方"
+      </div>
+    </header>
+
+    <div id="content">
+      <section id="viewList"></section>
+      <section id="viewKanban" hidden></section>
+      <section id="viewStats" hidden></section>
+    </div>
+  </main>
+</div>
+
+<!-- 任务编辑 -->
+<div class="mwrap" id="mw-task" hidden>
+  <div class="modal">
+    <h3 id="tm-head">编辑事项</h3>
+    <div class="title-line">
+      <input type="text" id="m-title" placeholder="要做什么？">
+    </div>
+    <div class="mrow">
+      <div><label>截止日期</label><input type="date" id="m-due"></div>
+      <div><label>负责人</label><input type="text" id="m-owner" list="ownerList" placeholder="我方"></div>
+      <div><label>优先级</label>
+        <select id="m-pri">
+          <option value="P0">P0 紧急</option>
+          <option value="P1">P1</option>
+          <option value="P2">P2</option>
+        </select>
+      </div>
+    </div>
+    <div class="mrow">
+      <div><label>状态</label>
+        <select id="m-status">
+          <option value="todo">待办</option>
+          <option value="doing">进行中</option>
+          <option value="wait">等人/等外部</option>
+          <option value="done">已完成</option>
+        </select>
+      </div>
+      <div><label>&nbsp;</label>
+        <label class="ck"><input type="checkbox" id="m-risk"> ⚠ 计入日报风险栏</label>
+      </div>
+      <div><label>&nbsp;</label>
+        <label class="ck"><input type="checkbox" id="m-repeat"> 🔄 每日循环</label>
+      </div>
+    </div>
+    <label>检查清单 <span class="hint-inline">（回车快速添加，完成后卡片显示进度）</span></label>
+    <div id="m-cl-items"></div>
+    <div class="cl-add">
+      <input type="text" id="m-cl-input" placeholder="添加清单项，回车确认">
+      <button class="btn ghost" id="m-cl-add">＋</button>
+    </div>
+    <label>备注（背景 / 下一步 / 卡点）</label>
+    <textarea id="m-note"></textarea>
+    <div class="mfoot">
+      <button class="btn danger ghost" id="m-del">删除</button>
+      <span class="flex1"></span>
+      <button class="btn ghost" id="m-cancel">取消</button>
+      <button class="btn blue" id="m-save">保存</button>
+    </div>
+  </div>
+</div>
+<datalist id="ownerList"></datalist>
+
+<!-- 项目设置 -->
+<div class="mwrap" id="mw-proj" hidden>
+  <div class="modal">
+    <h3>项目设置</h3>
+    <label>项目名称</label>
+    <input type="text" id="p-name">
+    <label>日报 / 周报抬头（如：XX项目 进度日报）</label>
+    <input type="text" id="p-report" placeholder="留空自动为「项目名 进度日报」">
+    <label>里程碑倒计时（最多 3 个，留空忽略）</label>
+    <div class="mrow"><input type="text" id="p-m1l" placeholder="名称，如 交付验收"><input type="date" id="p-m1d"></div>
+    <div class="mrow"><input type="text" id="p-m2l" placeholder="名称"><input type="date" id="p-m2d"></div>
+    <div class="mrow"><input type="text" id="p-m3l" placeholder="名称"><input type="date" id="p-m3d"></div>
+    <label class="ck big"><input type="checkbox" id="p-arch"> 归档此项目（从列表隐藏，数据保留）</label>
+    <div class="mfoot">
+      <button class="btn danger ghost" id="p-delete">删除本项目</button>
+      <span class="flex1"></span>
+      <button class="btn ghost" id="p-cancel">取消</button>
+      <button class="btn blue" id="p-save">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 报告 -->
+<div class="mwrap" id="mw-report" hidden>
+  <div class="modal wide">
+    <h3 id="r-title">报告预览</h3>
+    <textarea id="r-area" spellcheck="false"></textarea>
+    <div class="mfoot">
+      <span class="hint">发送前请核对日期与负责人</span>
+      <span class="flex1"></span>
+      <button class="btn ghost" id="r-close">收起</button>
+      <button class="btn green" id="r-copy">复制全文</button>
+    </div>
+  </div>
+</div>
+
+<!-- 微信待办导入 -->
+<div class="mwrap" id="mw-wechat" hidden>
+  <div class="modal xwide">
+    <h3>💬 微信待办导入 <span class="hint-inline">从本地解密的微信聊天记录中勾选消息，一键转为任务</span></h3>
+    <div id="wx-config" hidden>
+      <p class="cmsg">未找到微信解密工具。请先完成 wechat-decrypt 解密，或在下方填写正确路径：</p>
+      <label>Python 解释器（venv）</label>
+      <input type="text" id="wx-python" placeholder="C:\Users\MSI\.codex\tools\wechat-decrypt\.venv\Scripts\python.exe">
+      <label>wechat-decrypt 工具目录</label>
+      <input type="text" id="wx-dir" placeholder="C:\Users\MSI\.codex\tools\wechat-decrypt">
+      <div class="mfoot"><span class="flex1"></span><button class="btn blue" id="wx-save-cfg">保存并重试</button></div>
+    </div>
+    <div id="wx-main">
+      <div class="wx-layout">
+        <div class="wx-left">
+          <input type="text" id="wx-chat-filter" placeholder="🔍 搜索会话">
+          <div id="wx-chats" class="wx-chats"></div>
+        </div>
+        <div class="wx-right">
+          <div class="wx-toolbar">
+            <span id="wx-cur-chat">选择左侧会话</span>
+            <span class="flex1"></span>
+            <select id="wx-days">
+              <option value="1">最近 1 天</option>
+              <option value="2" selected>最近 2 天</option>
+              <option value="3">最近 3 天</option>
+              <option value="7">最近 7 天</option>
+            </select>
+            <button class="btn ghost" id="wx-load">读取</button>
+            <label class="ck"><input type="checkbox" id="wx-smart" checked> 智能预选待办</label>
+          </div>
+          <div id="wx-msgs" class="wx-msgs"><div class="empty">左侧选择一个会话后读取消息</div></div>
+          <div class="wx-foot">
+            <label>负责人默认</label>
+            <input type="text" id="wx-owner" value="我方" style="width:90px">
+            <label>截止</label>
+            <input type="date" id="wx-due">
+            <span class="flex1"></span>
+            <span id="wx-count" class="hint">已选 0 条</span>
+            <button class="btn blue" id="wx-convert">转为任务（0）</button>
+          </div>
+        </div>
+      </div>
+      <div class="mfoot">
+        <span class="hint">转换规则：标题取消息前 40 字；备注保留原文与时间；@某人 自动设为负责人；"明天/周X" 自动识别截止日</span>
+        <span class="flex1"></span>
+        <button class="btn ghost" id="wx-close">关闭</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 确认 -->
+<div class="mwrap" id="mw-confirm" hidden>
+  <div class="modal slim">
+    <h3 id="c-title">确认</h3>
+    <p id="c-msg" class="cmsg"></p>
+    <div class="mfoot">
+      <span class="flex1"></span>
+      <button class="btn ghost" id="c-cancel">取消</button>
+      <button class="btn blue" id="c-ok">确定</button>
+    </div>
+  </div>
+</div>
+
+<!-- 输入 -->
+<div class="mwrap" id="mw-prompt" hidden>
+  <div class="modal slim">
+    <h3 id="pr-title">输入</h3>
+    <label id="pr-label">名称</label>
+    <input type="text" id="pr-input">
+    <div class="mfoot">
+      <span class="flex1"></span>
+      <button class="btn ghost" id="pr-cancel">取消</button>
+      <button class="btn blue" id="pr-ok">确定</button>
+    </div>
+  </div>
+</div>
+
+<div id="toasts"></div>
+<script src="app.js"></script>
+</body>
+</html>
