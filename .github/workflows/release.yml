@@ -38,3 +38,20 @@ jobs:
           releaseBody: 'Windows 安装包见下方 Assets，下载 *_x64-setup.exe 运行即可。数据仅存本机。'
           releaseDraft: false
           prerelease: false
+
+      # 构建机的系统编码不支持非 ASCII 文件名，中文产品名会被替换成点号，
+      # 这里通过 GitHub API 把安装包重命名为正确的中文名（API 走 UTF-8，不受影响）。
+      - name: 修正安装包文件名
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: pwsh
+        run: |
+          $conf = Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json
+          $target = "PM待办助手_$($conf.version)_x64-setup.exe"
+          $rel = gh api "repos/$env:GITHUB_REPOSITORY/releases/latest" | ConvertFrom-Json
+          foreach ($a in $rel.assets) {
+            if ($a.name -like '*setup.exe' -and $a.name -ne $target) {
+              gh api -X PATCH "repos/$env:GITHUB_REPOSITORY/releases/assets/$($a.id)" -f name="$target"
+              Write-Host "重命名 $($a.name) -> $target"
+            }
+          }
