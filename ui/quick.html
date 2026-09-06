@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<title>快速捕获</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; background: transparent; overflow: hidden; }
+  body {
+    font-family: "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif;
+    display: flex; align-items: center; padding: 0 10px;
+  }
+  #box {
+    width: 100%; display: flex; align-items: center; gap: 8px;
+    background: #ffffff; border: 1px solid #4c6ef5; border-radius: 14px;
+    box-shadow: 0 10px 36px rgba(16,24,40,.28);
+    padding: 12px 14px;
+  }
+  @media (prefers-color-scheme: dark) { #box { background: #1c2230; border-color: #6d8bff; } #box input { color: #e6eaf3; } }
+  .logo { flex: none; width: 26px; height: 26px; border-radius: 8px; background: linear-gradient(135deg,#4c6ef5,#15aabf);
+    color: #fff; font-weight: 700; font-size: 14px; display: flex; align-items: center; justify-content: center; }
+  #inp {
+    flex: 1; border: none; outline: none; background: transparent;
+    font-size: 15px; color: #1b2231; font-family: inherit;
+  }
+  .tip { flex: none; font-size: 11px; color: #97a1b8; user-select: none; }
+  #hint {
+    position: fixed; left: 12px; bottom: 8px; font-size: 11px; color: #8a92a8;
+    background: rgba(23,28,38,.85); color: #c5cde0; border-radius: 7px; padding: 3px 9px;
+    opacity: 0; transition: opacity .15s; pointer-events: none; max-width: 90%;
+  }
+  #hint.show { opacity: 1; }
+</style>
+</head>
+<body>
+  <div id="box">
+    <div class="logo">✔</div>
+    <input id="inp" type="text" placeholder="快速捕获：任务内容（今天/明天/下周三/+3天/2026-09-14 · @负责人 · !P0 · #风险）" spellcheck="false" autocomplete="off">
+    <span class="tip">Enter 保存 · Esc 关闭</span>
+  </div>
+  <div id="hint"></div>
+<script>
+'use strict';
+/* 全局快速捕获小窗（包2 #5）：全局热键唤起，默认进收件箱，复用快速添加解析器的精简版 */
+const T = () => {
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+};
+function pad(n) { return n < 10 ? '0' + n : '' + n; }
+function addDays(s, n) { const p = s.split('-'); const d = new Date(+p[0], +p[1] - 1, +p[2]); d.setDate(d.getDate() + n); return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
+function nextWeekday(cn, nextWeek) {
+  const map = { '一': 1, '二': 2, '三': 3, '四': 4, '五': 5, '六': 6, '日': 7, '天': 7 };
+  const target = map[cn] || 1;
+  const curDow = new Date().getDay() || 7;
+  let delta = nextWeek ? (8 - curDow) + (target - 1) : (target - curDow);
+  if (!nextWeek) { if (delta < 0) delta += 7; if (delta === 0) delta = 7; }
+  return addDays(T(), delta);
+}
+/* 与主窗口 parseQuick 同规则：日期/负责人/优先级/风险/循环 → 结构化任务 */
+function parseQuick(raw) {
+  let s = ' ' + raw.trim() + ' ';
+  const t = { due: T(), owner: '我方', pri: 'P1', risk: false, repeat: '', title: '' };
+  const rel = { '大后天': 3, '后天': 2, '明天': 1, '今天': 0 };
+  s = s.replace(/(大后天|后天|明天|今天)/g, m => { t.due = addDays(T(), rel[m]); return ' '; });
+  s = s.replace(/下周([一二三四五六日天])/g, (m, d) => { t.due = nextWeekday(d, true); return ' '; });
+  s = s.replace(/每周([一二三四五六日天])/g, (m, d) => { t.repeat = 'weekly'; t.due = nextWeekday(d, false); return ' '; });
+  s = s.replace(/每月\s*(\d{1,2})\s*[号日]?/g, (m, d) => {
+    t.repeat = 'monthly';
+    const dd = Math.max(1, +d);
+    const curYm = T().slice(0, 7);
+    const dim = new Date(+curYm.slice(0, 4), +curYm.slice(5), 0).getDate();
+    t.due = curYm + '-' + pad(Math.min(dd, dim));
+    if (t.due < T()) t.due = addMonthsSafe(curYm, dd);
+    return ' ';
+  });
+  s = s.replace(/(?<![0-9])周([一二三四五六日天])(?![\d月])/g, (m, d) => { t.due = nextWeekday(d, false); return ' '; });
+  s = s.replace(/[+＋]\s*(\d+)\s*天?/g, (m, n) => { t.due = addDays(T(), +n); return ' '; });
+  s = s.replace(/(\d{4}-\d{1,2}-\d{1,2})/g, m => { const p = m.split('-'); t.due = p[0] + '-' + pad(+p[1]) + '-' + pad(+p[2]); return ' '; });
+  s = s.replace(/@([^\s!#@]+)/g, (m, o) => { t.owner = o; return ' '; });
+  s = s.replace(/!(P0|P1|P2)/gi, (m, p) => { t.pri = p.toUpperCase(); return ' '; });
+  s = s.replace(/#风险/g, () => { t.risk = true; return ' '; });
+  s = s.replace(/#(每日|每天)/g, () => { t.repeat = 'daily'; return ' '; });
+  s = s.replace(/#每周/g, () => { t.repeat = 'weekly'; return ' '; });
+  s = s.replace(/#每月/g, () => { t.repeat = 'monthly'; return ' '; });
+  t.title = s.replace(/\s+/g, ' ').trim();
+  return t;
+}
+function addMonthsSafe(ym, dd) {
+  const p = ym.split('-');
+  let y = +p[0], m = +p[1] + 1; if (m > 12) { m = 1; y++; }
+  const dim = new Date(y, m, 0).getDate();
+  return y + '-' + pad(m) + '-' + pad(Math.min(dd, dim));
+}
+function hint(msg, isErr) {
+  const el = document.getElementById('hint');
+  el.textContent = msg;
+  el.style.background = isErr ? 'rgba(150,30,30,.9)' : 'rgba(23,28,38,.85)';
+  el.classList.add('show');
+  setTimeout(() => el.classList.remove('show'), 2600);
+}
+async function saveTask() {
+  const inp = document.getElementById('inp');
+  const raw = inp.value;
+  if (!raw.trim()) { hideWin(); return; }
+  const t = parseQuick(raw);
+  if (!t.title) { hint('没解析出标题：日期/负责人等标记前后要留出标题文字', true); return; }
+  try {
+    /* Tauri 2 的 invoke 在 window.__TAURI__.core 下（v1 的顶层 __TAURI__.invoke 不存在） */
+    const { invoke } = window.__TAURI__.core;
+    const event = window.__TAURI__.event;
+    await invoke('upsert_task', {
+      task: {
+        id: 0, projectId: 0, title: t.title, due: t.due, owner: t.owner, pri: t.pri,
+        status: 'todo', doneAt: '', risk: t.risk, repeat: t.repeat, note: '',
+        createdAt: T(), sortOrder: 0, checklistJson: '[]'
+      }
+    });
+    await event.emit('quick-task-added', null);
+    inp.value = '';
+    hint('已捕获到收件箱：' + t.title + '（' + t.due + '）');
+    setTimeout(hideWin, 350);
+  } catch (e) { hint('保存失败：' + (e && e.message || e), true); }
+}
+async function hideWin() {
+  try { await window.__TAURI__.core.invoke('quick_hide'); } catch (e) {}
+}
+const inp = document.getElementById('inp');
+inp.addEventListener('keydown', e => {
+  if (e.key === 'Enter') { e.preventDefault(); saveTask(); }
+  else if (e.key === 'Escape') { e.preventDefault(); hideWin(); }
+});
+window.addEventListener('blur', () => setTimeout(() => { if (!inp.value.trim()) hideWin(); }, 120));
+setTimeout(() => inp.focus(), 60);
+</script>
+</body>
+</html>

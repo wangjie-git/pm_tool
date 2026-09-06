@@ -11,21 +11,27 @@
   <aside id="sidebar">
     <div class="brand">
       <div class="logo">✔</div>
-      <div class="brand-txt"><b>PM 待办助手</b><small>本地项目管理 v1.1</small></div>
+      <div class="brand-txt"><b>PM 待办助手</b><small>本地项目管理 v2.0</small></div>
     </div>
 
-    <div class="side-label"><span>项目</span><button id="btnNewProj" title="新建项目">＋</button></div>
+    <nav id="todayNav"></nav>
+    <div class="side-label"><span>项目</span><button id="btnNewProj" title="新建项目（可选模板）">＋</button></div>
     <nav id="projNav"></nav>
     <div id="archWrap"></div>
+    <div class="side-label"><span>洞察</span><button id="btnAddSmart" title="保存一个跨项目智能视图">＋</button></div>
+    <nav id="smartNav"></nav>
+    <nav id="ideasNav"></nav>
+    <div class="side-label"><span>记录</span></div>
+    <nav id="memoryNav"></nav>
     <div class="side-foot">
       <div class="foot-btns">
         <button id="btnTheme" title="切换明暗主题">🌙</button>
-        <button id="btnExport" title="导出 JSON 备份文件">备份</button>
-        <button id="btnImport" title="导入 JSON 备份（覆盖当前数据）">导入</button>
-        <button id="btnCsv" title="导出当前项目为 CSV，可用 Excel 打开">CSV</button>
+        <button id="btnRemind" title="每日定时提醒：未设置">⏰</button>
+        <button id="btnTrash" title="回收站：30 天内可恢复">🗑<span id="btnTrashCnt" class="trash-cnt"></span></button>
+        <button id="btnSettings" title="设置：通用 / 自动化 / 桌面集成 / AI / 数据">⚙</button>
       </div>
       <small>数据存于本机 SQLite · 每日自动备份</small>
-      <small class="kbd-hint">N 新建 · 1/2/3 切换视图 · / 搜索</small>
+      <small class="kbd-hint">N 新建 · 1-7 视图 · / 搜索 · Ctrl+K 直达</small>
     </div>
   </aside>
 
@@ -33,15 +39,37 @@
     <header id="topbar">
       <div class="hrow">
         <h1 id="projName" title="点击打开项目设置">—</h1>
-        <div class="tabs" id="viewTabs">
-          <button data-view="list" class="on">☰ 列表</button>
-          <button data-view="kanban">▦ 看板</button>
-          <button data-view="stats">📊 统计</button>
+        <!-- 一级页签：项目下的四个页面 -->
+        <nav class="ptabs" id="pageTabs">
+          <button data-page="task" class="on">任务</button>
+          <button data-page="stats">统计</button>
+          <button data-page="decisions">决策</button>
+          <button data-page="archive">档案</button>
+        </nav>
+        <!-- 二级分段控件：任务页的四种呈现 -->
+        <div class="seg" id="viewSeg">
+          <button data-view="list" class="on" title="快捷键 1">☰ 列表</button>
+          <button data-view="kanban" title="快捷键 2">▦ 看板</button>
+          <button data-view="calendar" title="快捷键 3">📅 日历</button>
+          <button data-view="timeline" title="快捷键 4">⏱ 时间线</button>
         </div>
         <span class="flex1"></span>
         <input id="search" type="text" placeholder="搜索，或 @负责人 !P0 #风险 筛选（/）">
-        <button class="btn green" onclick="openReport('day')">日报</button>
-        <button class="btn teal" onclick="openReport('week')">周报</button>
+        <button class="btn blue" id="btnTodayCopy" hidden>📋 复制今日清单</button>
+        <button class="btn green" id="btnDay" onclick="openReport('day')">日报</button>
+        <button class="btn teal" id="btnWeek" onclick="openReport('week')">周报</button>
+        <div class="more-wrap" id="projMoreWrap" hidden>
+          <button class="btn ghost" id="btnProjMore" title="项目工具：导入导出 / 设置 / 模板">⋯</button>
+          <div id="projMenu" class="menu-pop" hidden>
+            <button data-act="xlsx">📥 Excel 计划表导入向导</button>
+            <button data-act="xlsx-out">📤 导出 .xlsx 计划表</button>
+            <button data-act="csv">📄 导出 CSV</button>
+            <button data-act="md">📝 导出项目 Markdown</button>
+            <div class="menu-sep"></div>
+            <button data-act="settings">⚙ 项目设置</button>
+            <button data-act="tpl">💾 另存为项目模板</button>
+          </div>
+        </div>
       </div>
       <div class="hrow sub">
         <div id="countdown"></div>
@@ -49,24 +77,49 @@
         <div id="statsbar"></div>
       </div>
       <div class="quickadd">
-        <input id="quick" type="text" placeholder="快速添加：明天 提交验收方案 @张三 !P0 #风险 #每日">
-        <button id="btnHelp" title="快速添加语法帮助">?</button>
+        <input id="quick" type="text" placeholder="输入任务，回车添加；或用右侧按钮插入日期/负责人/优先级">
+        <div class="q-tools">
+          <select id="qProj" class="q-proj" hidden title="今日聚焦模式下，选择任务加入的项目"></select>
+          <button id="q-inbox" title="收件箱模式：先不分项目，快速记下，之后分拣">📥</button>
+          <button id="q-date" title="选择日期">📅</button>
+          <button id="q-owner" title="选择负责人">👤</button>
+          <button id="q-pri" title="优先级（点击切换 P0/P1/P2）">🚩</button>
+          <button id="q-risk" title="标记风险（⚠ 日报风险栏）">⚠️</button>
+          <button id="q-repeat" title="每日循环任务">🔄</button>
+          <button id="q-aitask" title="AI 粘贴转任务：把会议记录 / 群聊 / 邮件整段粘进来，自动拆成任务草稿">🤖</button>
+        </div>
         <button class="btn blue" id="btnQuickAdd">＋ 添加</button>
       </div>
-      <div id="helpBox" hidden>
-        <b>快速添加语法</b>　日期：<code>今天 / 明天 / 后天 / 大后天 / 下周三 / +3天 / 2026-09-14</code>
-        ｜ 负责人：<code>@张三</code>　优先级：<code>!P0 !P1 !P2</code>
-        ｜ 标记：<code>#风险</code> <code>#每日</code><br>
-        示例：<code>下周三 闸机联调 @李四 !P0 #风险</code>　省略日期默认今天，省略负责人默认"我方"
-      </div>
+      <div id="quickPreview" class="quick-preview" hidden></div>
+      <div id="qPop" class="q-pop" hidden></div>
     </header>
 
     <div id="content">
-      <section id="viewList"></section>
+      <section id="viewToday" hidden></section>
+      <section id="viewInbox" hidden></section>
+      <section id="viewIdeas" hidden></section>
+      <section id="viewSmart" hidden></section>
+      <section id="viewMeetings" hidden></section>
+      <section id="viewContacts" hidden></section>
+      <section id="viewDailyNote" hidden></section>
+      <section id="viewList" hidden></section>
       <section id="viewKanban" hidden></section>
+      <section id="viewCalendar" hidden></section>
+      <section id="viewTimeline" hidden></section>
       <section id="viewStats" hidden></section>
+      <section id="viewDecisions" hidden></section>
+      <section id="viewArchive" hidden></section>
     </div>
   </main>
+</div>
+
+<!-- 计时悬浮条（#1 任务计时） -->
+<div id="timerBar" class="timerbar" hidden>
+  <span class="tb-dot"></span>
+  <span id="timerTaskName"></span>
+  <b id="timerTime">00:00:00</b>
+  <button class="btn blue ghost" onclick="openFocusOverlay()" title="进入专注全屏视图（可选倒计时，结束自动记工时）">🎯 专注</button>
+  <button class="btn danger ghost" onclick="stopTimerFlow(false)">⏹ 停止并记录工时</button>
 </div>
 
 <!-- 任务编辑 -->
@@ -88,6 +141,7 @@
       </div>
     </div>
     <div class="mrow">
+      <div><label>开始日期（时间线视图用，可空）</label><input type="date" id="m-start"></div>
       <div><label>状态</label>
         <select id="m-status">
           <option value="todo">待办</option>
@@ -96,21 +150,59 @@
           <option value="done">已完成</option>
         </select>
       </div>
+      <div><label>循环</label>
+        <select id="m-repeat">
+          <option value="">不循环</option>
+          <option value="daily">🔄 每天</option>
+          <option value="weekly">🔄 每周</option>
+          <option value="monthly">🔄 每月</option>
+        </select>
+      </div>
+    </div>
+    <div class="mrow">
+      <div><label>父任务（进度自动上卷）</label>
+        <select id="m-parent"><option value="0">（无父任务）</option></select>
+      </div>
       <div><label>&nbsp;</label>
         <label class="ck"><input type="checkbox" id="m-risk"> ⚠ 计入日报风险栏</label>
       </div>
       <div><label>&nbsp;</label>
-        <label class="ck"><input type="checkbox" id="m-repeat"> 🔄 每日循环</label>
+        <label class="ck"><input type="checkbox" id="m-milestone"> 🏁 里程碑（时间线画菱形）</label>
+      </div>
+    </div>
+    <!-- 风险登记册（#6）：概率×影响评分 -->
+    <div id="m-risk-box" hidden>
+      <div class="risk-box">
+        <div class="risk-box-title">🛡 风险登记册（PingCode 风险模板）</div>
+        <div class="mrow">
+          <div><label>发生概率 1-5</label>
+            <select id="m-prob"><option value="0">未评分</option><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option></select>
+          </div>
+          <div><label>影响程度 1-5</label>
+            <select id="m-impact"><option value="0">未评分</option><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option></select>
+          </div>
+          <div><label>风险值（自动）</label><div class="risk-val" id="m-risk-val">未评分</div></div>
+        </div>
+        <label>应对措施（怎么做）</label>
+        <textarea id="m-mitigate" rows="2" placeholder="如：提前 2 周联系供应商备货；压测提前到本周"></textarea>
+        <label>升级条件（何时上报谁）</label>
+        <textarea id="m-escalate" rows="2" placeholder="如：若本周五前未签合同，上报分管领导决策"></textarea>
       </div>
     </div>
     <label>检查清单 <span class="hint-inline">（回车快速添加，完成后卡片显示进度）</span></label>
     <div id="m-cl-items"></div>
     <div class="cl-add">
       <input type="text" id="m-cl-input" placeholder="添加清单项，回车确认">
+      <button class="btn ghost" id="m-cl-ai" title="AI 根据任务标题 / 备注生成检查清单草稿（可改可删后再保存）">🤖</button>
       <button class="btn ghost" id="m-cl-add">＋</button>
     </div>
-    <label>备注（背景 / 下一步 / 卡点）</label>
+    <label>备注（支持 Markdown：列表 / **粗体** / > 引用 / [[任务反链]]）</label>
     <textarea id="m-note"></textarea>
+    <div class="note-preview-row">
+      <button class="linkbtn2" id="m-note-preview-toggle" onclick="toggleNotePreview()">👁 预览渲染效果</button>
+      <div id="m-note-preview" class="mdview" hidden></div>
+    </div>
+    <div id="m-backlinks" class="backlink-box" hidden></div>
     <div class="mfoot">
       <button class="btn danger ghost" id="m-del">删除</button>
       <span class="flex1"></span>
@@ -134,8 +226,26 @@
     <div class="mrow"><input type="text" id="p-m2l" placeholder="名称"><input type="date" id="p-m2d"></div>
     <div class="mrow"><input type="text" id="p-m3l" placeholder="名称"><input type="date" id="p-m3d"></div>
     <label class="ck big"><input type="checkbox" id="p-arch"> 归档此项目（从列表隐藏，数据保留）</label>
+    <label>群机器人推送（日报一键发到群）</label>
+    <div class="mrow">
+      <div><label>机器人类型</label>
+        <select id="p-wh-type">
+          <option value="">不推送</option>
+          <option value="wecom">企业微信群机器人</option>
+          <option value="dingtalk">钉钉群机器人（支持加签）</option>
+          <option value="feishu">飞书群机器人</option>
+        </select>
+      </div>
+      <div class="grow2"><label>Webhook 地址</label><input type="text" id="p-wh-url" placeholder="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=…"></div>
+    </div>
+    <div class="mrow" id="p-wh-secret-row" hidden>
+      <div class="grow2"><label>钉钉加签密钥（SEC 开头，可选）</label><input type="text" id="p-wh-secret" placeholder="SEC…"></div>
+    </div>
+    <label>工时预算（小时，80%/100% 触发托盘通知与群推送，留空关闭）</label>
+    <input type="number" id="p-budget" min="0" step="0.5" placeholder="如 200">
     <div class="mfoot">
       <button class="btn danger ghost" id="p-delete">删除本项目</button>
+      <button class="btn ghost" id="p-save-tpl" title="把本项目的未完成任务集保存为模板，新建项目时一键带入">💾 另存为模板</button>
       <span class="flex1"></span>
       <button class="btn ghost" id="p-cancel">取消</button>
       <button class="btn blue" id="p-save">保存</button>
@@ -148,7 +258,10 @@
   <div class="modal wide">
     <h3 id="r-title">报告预览</h3>
     <textarea id="r-area" spellcheck="false"></textarea>
+    <input type="hidden" id="r-kind" value="day">
     <div class="mfoot">
+      <button class="btn teal" id="r-wh" hidden title="通过项目设置里配置的群机器人 Webhook 发送">📤 发到群</button>
+      <button class="btn ghost" id="r-ai" title="用设置里配置的 AI 模型润色报告（⚙ 设置 → AI 供应商）">🤖 AI 润色</button>
       <span class="hint">发送前请核对日期与负责人</span>
       <span class="flex1"></span>
       <button class="btn ghost" id="r-close">收起</button>
@@ -180,6 +293,357 @@
       <span class="flex1"></span>
       <button class="btn ghost" id="pr-cancel">取消</button>
       <button class="btn blue" id="pr-ok">确定</button>
+    </div>
+  </div>
+</div>
+
+<!-- 命令面板 -->
+<div class="mwrap" id="mw-palette" hidden>
+  <div class="modal palette">
+    <input id="pal-input" type="text" autocomplete="off" spellcheck="false" placeholder="🔍 搜项目 / 任务，回车直达；↑↓ 选择，Esc 关闭">
+    <div id="pal-list"></div>
+  </div>
+</div>
+
+<!-- 新建项目（模板 #4） -->
+<div class="mwrap" id="mw-newproj" hidden>
+  <div class="modal slim">
+    <h3>新建项目</h3>
+    <label>项目名称</label>
+    <input type="text" id="np-name" placeholder="如：闸机二期">
+    <label>从模板创建（Teambition 模板中心思路）</label>
+    <div class="mrow">
+      <select id="np-tpl" class="grow2"></select>
+      <button class="btn danger ghost" id="np-del-tpl" title="删除选中的模板">🗑</button>
+    </div>
+    <div class="hint" style="margin:4px 0 0;">模板来自项目工具菜单里的「💾 另存为项目模板」，带入任务集骨架，截止日默认今天</div>
+    <div class="mfoot">
+      <span class="flex1"></span>
+      <button class="btn ghost" id="np-cancel">取消</button>
+      <button class="btn blue" id="np-create">创建</button>
+    </div>
+  </div>
+</div>
+
+<!-- 回收站（#5） -->
+<div class="mwrap" id="mw-trash" hidden>
+  <div class="modal">
+    <h3>🗑 回收站（<span id="trash-cnt">0</span>）</h3>
+    <div class="hint" style="margin-bottom:8px;">已删除的任务 / 项目保留 30 天，可随时恢复（Azure DevOps Recycle Bin 思路）</div>
+    <div id="trash-list" class="trash-list"></div>
+    <div class="mfoot">
+      <button class="btn danger ghost" id="tr-purge-old">清空 30 天前条目</button>
+      <span class="flex1"></span>
+      <button class="btn ghost" id="tr-close">关闭</button>
+    </div>
+  </div>
+</div>
+
+<!-- 每日收尾问答（#2 + 包3 #12 升级为站会三问） -->
+<div class="mwrap" id="mw-shutdown" hidden>
+  <div class="modal">
+    <h3>🌙 每日收尾 · 站会三问 <small class="hint" id="sd-date"></small></h3>
+    <div class="hint" style="margin-bottom:8px;">Sunsama Shutdown + Geekbot 站会三问：干成什么 / 阻碍 / 明天三件事。明日日报自动引用。</div>
+    <label>1️⃣ 今天干成了什么？</label>
+    <textarea id="sd-done" rows="3" placeholder="已自动预填今天勾完成的任务，可补充改动"></textarea>
+    <label>2️⃣ 卡在哪里了？（背景性卡点，进明日日报）</label>
+    <textarea id="sd-stuck" rows="2" placeholder="卡点 / 需要谁拍板 / 等谁的回复"></textarea>
+    <label>3️⃣ 遇到什么阻碍？（可一键转成风险任务，每行一条）</label>
+    <textarea id="sd-block" rows="2" placeholder="如：供应商合同没签 → 生成一条 P1 风险任务跟进"></textarea>
+    <div style="margin:2px 0 10px;"><button class="btn ghost" id="sd-block2task" title="把上面每行阻碍转成一条风险任务，进收件箱">🛡 阻碍转风险任务</button></div>
+    <label>4️⃣ 明天最重要的三件事？</label>
+    <textarea id="sd-next" rows="3" placeholder="一行一件，明天生成日报时排在「今日计划」最前面"></textarea>
+    <div class="mfoot">
+      <span class="flex1"></span>
+      <button class="btn ghost" id="sd-skip">跳过</button>
+      <button class="btn blue" id="sd-save">记录，收工 ✅</button>
+    </div>
+  </div>
+</div>
+
+<!-- 设置：五节导航（通用 / 自动化 / 桌面集成 / AI 供应商 / 数据） -->
+<div class="mwrap" id="mw-settings" hidden>
+  <div class="modal st-modal">
+    <h3>⚙ 设置</h3>
+    <div class="st-tabs" id="stTabs">
+      <button data-sec="general" class="on">🧭 通用</button>
+      <button data-sec="auto">🤝 自动化</button>
+      <button data-sec="desktop">🖥 桌面集成</button>
+      <button data-sec="ai">🤖 AI 供应商</button>
+      <button data-sec="data">💾 数据</button>
+    </div>
+    <div class="st-body">
+      <div class="st-sec" data-sec="general">
+        <label>每日收尾问答时间（Sunsama Shutdown，留空关闭；到点弹站会三问）</label>
+        <input type="time" id="st-shutdown">
+        <div class="hint" style="margin-top:10px;">
+          每日到期任务提醒：点左下角 <b>⏰</b> 设置时间 · 明暗主题：点左下角 <b>🌙</b><br>
+          数据安全：本机 SQLite 存储，启动自动备份（保留最近 30 份），JSON / CSV / Excel 导入导出见「💾 数据」节与项目工具菜单「⋯」
+        </div>
+      </div>
+      <div class="st-sec" data-sec="auto" hidden>
+        <label>固定规则自动化（Trello Butler 预置开关，非通用引擎）</label>
+        <label class="ck big"><input type="checkbox" id="st-overdueTop"> 逾期任务自动置顶排序（仅显示层，不改数据）</label>
+        <label class="ck big"><input type="checkbox" id="st-staleCleanup"> 停滞超 14 天自动出现在侧栏「🧹 待清理」视图</label>
+        <label class="ck big"><input type="checkbox" id="st-doneStopTimer"> 任务完成时自动停止计时并记录工时</label>
+        <label class="ck big"><input type="checkbox" id="st-inboxNudge"> 每日提醒里附带「收件箱待分拣」数量</label>
+      </div>
+      <div class="st-sec" data-sec="desktop" hidden>
+        <label class="ck big"><input type="checkbox" id="st-autostart"> 开机自动启动（配合定时提醒更可靠）</label>
+        <label>全局快速捕获热键（弹无边框小窗，默认进收件箱；输入 off 关闭）</label>
+        <div class="ai-keyrow">
+          <input type="text" id="st-hotkey" placeholder="Alt+Shift+A">
+          <button class="btn ghost" id="st-hotkey-test" style="flex:none;">⚡ 试一下</button>
+        </div>
+        <label>今日目标任务数（任务栏进度条映射 今日已完成/目标）</label>
+        <input type="number" id="st-goal" min="1" max="50" placeholder="默认 5">
+        <div class="hint" style="margin:8px 0 0;">深链接 pm-todo://task/123 已随安装包注册，群推送里点链接可跳回对应任务。</div>
+      </div>
+      <div class="st-sec" data-sec="ai" hidden>
+        <div class="ai-box">
+          <div class="ai-box-title">🤖 AI 润色 · 模型供应商</div>
+          <div id="st-ai-profiles" class="ai-profiles"></div>
+          <div class="hint" style="margin:6px 0 0;">点击卡片即切换并启用该供应商；改动先暂存，点底部「保存」才写入本机数据库</div>
+          <div class="mrow">
+            <div><label>预设</label>
+              <select id="st-ai-preset"></select>
+            </div>
+            <div class="grow2"><label>模型 ID</label>
+              <input type="text" id="st-ai-model" list="aiModelList" placeholder="如 deepseek-chat / glm-4.6">
+            </div>
+          </div>
+          <label>API 地址（Base URL，以 /v1 等兼容前缀结尾）</label>
+          <input type="text" id="st-ai-baseurl" placeholder="https://api.deepseek.com/v1">
+          <label>API Key（仅存本机 SQLite）</label>
+          <div class="ai-keyrow">
+            <input type="password" id="st-ai-key" placeholder="sk-…" autocomplete="off">
+            <label class="ai-showck"><input type="checkbox" id="st-ai-show"> 显示</label>
+          </div>
+          <datalist id="aiModelList"></datalist>
+          <div id="st-ai-chips" class="ai-chips" hidden></div>
+          <div class="st-ai-actions">
+            <button class="btn ghost" id="st-ai-models" title="调用 GET {Base URL}/models 拉取可选模型">↻ 拉取模型</button>
+            <button class="btn ghost" id="st-ai-test" title="用当前填写的内容发一条测试消息，验证是否可用">⚡ 测试连接</button>
+            <button class="btn ghost" id="st-ai-add" title="把当前填写的内容另存为一家供应商，之后可一键切换">＋ 另存供应商</button>
+            <button class="btn danger ghost" id="st-ai-del" title="删除当前选中的供应商">🗑</button>
+          </div>
+          <div class="hint" id="st-ai-status" hidden></div>
+        </div>
+      </div>
+      <div class="st-sec" data-sec="data" hidden>
+        <div class="hint" style="margin:0 0 10px;">数据全部存在本机 SQLite；启动时自动备份，保留最近 30 份。以下为手动备份与迁移入口。</div>
+        <div class="data-actions">
+          <button class="btn ghost" id="st-backup-now" title="立即在本机备份目录生成一份备份，返回备份路径">📦 立即备份</button>
+          <button class="btn ghost" id="st-export" title="导出全部数据为 JSON 备份文件">📤 导出 JSON 备份</button>
+          <button class="btn ghost" id="st-import" title="导入 JSON 备份（覆盖当前数据）">📥 导入 JSON 备份</button>
+          <button class="btn ghost" id="st-trash" title="已删除的任务 / 项目保留 30 天，可恢复">🗑 打开回收站</button>
+        </div>
+        <div class="hint" style="margin-top:10px;">项目级导入导出（Excel 计划表双向 / CSV / 整项目 Markdown）在选中项目后，点顶栏右侧「⋯ 项目工具」。</div>
+      </div>
+    </div>
+    <div class="mfoot">
+      <span class="flex1"></span>
+      <button class="btn ghost" id="st-cancel">取消</button>
+      <button class="btn blue" id="st-save">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 保存智能视图（#9） -->
+<div class="mwrap" id="mw-smart" hidden>
+  <div class="modal slim">
+    <h3>保存智能视图</h3>
+    <label>视图名称</label>
+    <input type="text" id="sv-name" placeholder="如：P0 风险盘点">
+    <label>筛选条件（跨全部未归档项目，只看未完成任务）</label>
+    <label class="ck big"><input type="checkbox" id="sv-risk"> ⚠ 标记为风险的任务</label>
+    <label class="ck big"><input type="checkbox" id="sv-overdue"> 🔴 已逾期的任务</label>
+    <div class="mrow">
+      <div><label>⏳ 等待超过（天）</label><input type="number" id="sv-wait" min="1" max="90" placeholder="如 3"></div>
+      <div><label>💤 停滞超过（天）</label><input type="number" id="sv-stale" min="1" max="365" placeholder="如 7"></div>
+      <div><label>🚩 优先级</label>
+        <select id="sv-pri"><option value="">不限</option><option value="P0">P0</option><option value="P1">P1</option><option value="P2">P2</option></select>
+      </div>
+    </div>
+    <div class="mfoot">
+      <span class="flex1"></span>
+      <button class="btn ghost" id="sv-cancel">取消</button>
+      <button class="btn blue" id="sv-save">保存视图</button>
+    </div>
+  </div>
+</div>
+
+<!-- 需求转任务（#14） -->
+<div class="mwrap" id="mw-convert" hidden>
+  <div class="modal slim">
+    <h3>需求转为任务</h3>
+    <input type="hidden" id="cv-idea-id" value="">
+    <label>加入项目</label>
+    <select id="cv-proj"></select>
+    <label>截止日期</label>
+    <input type="date" id="cv-due">
+    <div class="mfoot">
+      <span class="flex1"></span>
+      <button class="btn ghost" id="cv-cancel">取消</button>
+      <button class="btn blue" id="cv-ok">转为任务</button>
+    </div>
+  </div>
+</div>
+
+<!-- AI 粘贴转任务（#16 增强）：非结构化文字 → 任务草稿，确认后才入库 -->
+<div class="mwrap" id="mw-aitask" hidden>
+  <div class="modal">
+    <h3>🤖 AI 粘贴转任务</h3>
+    <div class="hint" style="margin:0 0 8px;">把会议记录 / 群聊 / 邮件 / 口述笔记整段粘贴进来，AI 拆成结构化任务草稿（含日期 / 负责人 / 优先级 / 风险）。先预览确认，勾选后才入库。</div>
+    <textarea id="at-input" rows="5" placeholder="如：周三前李四要交联调报告；供应商合同这周必须签掉，不然影响进场，这个是 P0；下月开始安排验收面试"></textarea>
+    <div class="mrow" style="margin-top:8px;">
+      <div><label>解析后加入</label><select id="at-proj"></select></div>
+      <div style="flex:0 0 auto;"><label>&nbsp;</label><button class="btn blue" id="at-parse">🔍 AI 解析</button></div>
+    </div>
+    <div id="at-results" hidden></div>
+    <div class="mfoot">
+      <span class="hint" id="at-status" style="max-width:58%;"></span>
+      <span class="flex1"></span>
+      <button class="btn ghost" id="at-cancel">关闭</button>
+      <button class="btn blue" id="at-import" hidden>✅ 添加所选</button>
+    </div>
+  </div>
+</div>
+
+<!-- 决策日志（包3 #9，ADR 模板） -->
+<div class="mwrap" id="mw-decision" hidden>
+  <div class="modal wide">
+    <h3>🏛 记录决策 <small class="hint-inline">ADR 模板 · 治「口头答应了没人记得」</small></h3>
+    <input type="hidden" id="d-id" value="">
+    <div class="mrow">
+      <div class="grow2"><label>决策标题（一句话说清决定了什么）</label><input type="text" id="d-title" placeholder="如：闸机厂商定为 B 公司"></div>
+      <div><label>日期</label><input type="date" id="d-date"></div>
+    </div>
+    <label>背景（当时面对什么问题）</label>
+    <textarea id="d-background" rows="2"></textarea>
+    <label>备选项（都考虑了哪些方案）</label>
+    <textarea id="d-options" rows="2"></textarea>
+    <label>决定</label>
+    <textarea id="d-decision" rows="2" placeholder="最终选了什么，一句话可执行"></textarea>
+    <label>原因（为什么这么定，当时为什么这么定就靠它）</label>
+    <textarea id="d-reason" rows="2"></textarea>
+    <div class="mrow">
+      <div><label>状态</label>
+        <select id="d-status">
+          <option>生效中</option>
+          <option>已废弃</option>
+          <option>已被替代</option>
+        </select>
+      </div>
+      <div><label>关联任务（互链，可空）</label><select id="d-task"><option value="0">（无）</option></select></div>
+    </div>
+    <div class="mfoot">
+      <button class="btn danger ghost" id="d-del" hidden>删除</button>
+      <span class="flex1"></span>
+      <button class="btn ghost" id="d-cancel">取消</button>
+      <button class="btn blue" id="d-save">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 会议记录（包3 #10，Fellow 模式：会后笔记模板 + 行动项转任务） -->
+<div class="mwrap" id="mw-meeting" hidden>
+  <div class="modal wide">
+    <h3 id="mt-head">🗂 会议纪要 <small class="hint-inline">会后笔记模板：议题 / 参与人 / 结论 / 行动项</small></h3>
+    <input type="hidden" id="mt-id" value="">
+    <div class="mrow">
+      <div class="grow2"><label>议题（会议主题）</label><input type="text" id="mt-title" placeholder="如：与甲方周例会"></div>
+      <div><label>日期</label><input type="date" id="mt-date"></div>
+    </div>
+    <div class="mrow">
+      <div><label>参与人（逗号分隔，可与干系人档案对应）</label><input type="text" id="mt-attendees" placeholder="张三, 李四, 王五"></div>
+      <div><label>关联项目（可空）</label><select id="mt-proj"><option value="0">（不关联）</option></select></div>
+    </div>
+    <label>结论 / 要点（支持 Markdown）</label>
+    <textarea id="mt-conclusion" rows="4" placeholder="- 验收标准按附件 A 执行&#10;- 付款节点调整到验收后 15 天"></textarea>
+    <label>行动项 <span class="hint-inline">（一行一条；保存后每条可一键转任务 / 转决策）</span></label>
+    <div id="mt-items"></div>
+    <div class="cl-add">
+      <input type="text" id="mt-item-input" placeholder="添加行动项，回车确认">
+      <button class="btn ghost" id="mt-item-add">＋</button>
+    </div>
+    <div class="mfoot">
+      <button class="btn danger ghost" id="mt-del" hidden>删除</button>
+      <span class="flex1"></span>
+      <button class="btn ghost" id="mt-cancel">取消</button>
+      <button class="btn blue" id="mt-save">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 干系人档案（包3 #11，FollowUpThen 机制） -->
+<div class="mwrap" id="mw-contact" hidden>
+  <div class="modal">
+    <h3>👥 干系人档案</h3>
+    <input type="hidden" id="ct-id" value="">
+    <div class="mrow">
+      <div><label>姓名</label><input type="text" id="ct-name" placeholder="如：李四"></div>
+      <div><label>组织 / 角色</label><input type="text" id="ct-org" placeholder="如：甲方信息科 科长"></div>
+    </div>
+    <div class="mrow">
+      <div><label>标签（权力/利益，逗号分隔）</label><input type="text" id="ct-tags" placeholder="高权力,高利益"></div>
+      <div><label>关联项目（逗号分隔）</label><input type="text" id="ct-projects" placeholder="闸机二期"></div>
+    </div>
+    <div class="mrow">
+      <div><label>上次沟通日期</label><input type="date" id="ct-last"></div>
+      <div><label>跟进周期（天）</label><input type="number" id="ct-days" min="1" max="365" placeholder="14"></div>
+    </div>
+    <label>备注（沟通偏好 / 关注点）</label>
+    <textarea id="ct-note" rows="2"></textarea>
+    <div class="mfoot">
+      <button class="btn danger ghost" id="ct-del" hidden>删除</button>
+      <span class="flex1"></span>
+      <button class="btn ghost" id="ct-cancel">取消</button>
+      <button class="btn blue" id="ct-save">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- Excel 导入向导（包5，Jira 五步模式） -->
+<div class="mwrap" id="mw-xlsx" hidden>
+  <div class="modal xwide">
+    <h3>📥 Excel 计划表导入向导 <small class="hint-inline">Jira 五步：选文件 → 选表 → 映射 → 预览 → 导入</small></h3>
+    <div id="xw-steps" class="xw-steps"></div>
+    <div id="xw-body" class="xw-body"></div>
+    <div class="mfoot">
+      <button class="btn ghost" id="xw-export" title="反向导出：把当前项目导出为带样式的 .xlsx 计划表发回给甲方/领导">📤 导出当前项目 .xlsx</button>
+      <span class="hint" id="xw-status"></span>
+      <span class="flex1"></span>
+      <button class="btn ghost" id="xw-cancel">关闭</button>
+      <button class="btn blue" id="xw-next" hidden>下一步 →</button>
+      <button class="btn blue" id="xw-import" hidden>📥 开始导入</button>
+    </div>
+  </div>
+</div>
+
+<!-- 专注会话（包4 #17）：全屏视图 + 倒计时 + 一句收尾 -->
+<div class="mwrap" id="mw-focus" hidden>
+  <div class="focus-full">
+    <div class="focus-task" id="fc-task">—</div>
+    <div class="focus-time" id="fc-time">00:00:00</div>
+    <div class="focus-mode">
+      <label class="ck"><input type="radio" name="fc-mode" value="up" checked> 正计时</label>
+      <label class="ck"><input type="radio" name="fc-mode" value="down"> 倒计时</label>
+      <select id="fc-mins">
+        <option value="25">25 分钟</option>
+        <option value="45">45 分钟</option>
+        <option value="60">60 分钟</option>
+      </select>
+    </div>
+    <div class="focus-bar"><div id="fc-bar" style="width:0%"></div></div>
+    <div class="mfoot" style="justify-content:center;">
+      <button class="btn ghost" id="fc-minimize">回到界面</button>
+      <button class="btn blue" id="fc-finish">⏹ 结束专注并记录工时</button>
+    </div>
+    <div class="focus-wrap" id="fc-wrap" hidden>
+      <label>一句收尾（这段时间干了什么，写入每日笔记）</label>
+      <input type="text" id="fc-note" placeholder="如：联调报告初稿完成一半">
+      <button class="btn green" id="fc-save-note">记好了</button>
     </div>
   </div>
 </div>

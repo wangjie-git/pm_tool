@@ -9,6 +9,10 @@ tools/msvc-portable/
 tools/wx_list.json
 tools/wx_read.json
 
+# 本地临时文件与运行数据
+.grep-*.txt
+tools/hook_received.jsonl
+
 # Node / 前端
 node_modules/
 dist/

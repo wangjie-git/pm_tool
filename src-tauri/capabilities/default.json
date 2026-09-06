@@ -1,6 +1,6 @@
 {
   "identifier": "default",
-  "description": "主窗口能力：核心API + 文件对话框 + 系统通知",
-  "windows": ["main"],
+  "description": "主窗口能力：核心API + 文件对话框 + 系统通知（含全局快速捕获小窗 quick）",
+  "windows": ["main", "quick"],
   "permissions": ["core:default", "dialog:default", "notification:default"]
 }
