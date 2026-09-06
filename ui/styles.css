@@ -969,3 +969,199 @@ select.q-proj {
 }
 .tour-modal .tour-row .ti { flex: none; width: 26px; text-align: center; }
 .tour-modal .tour-foot { display: flex; justify-content: flex-end; margin-top: 16px; }
+
+/* ================= v2.2 实用性与交互打磨 ================= */
+
+/* --- A9/弹窗：checkbox 与文字 flex 对齐（折行不脱节） --- */
+.modal .ck { display: flex; align-items: flex-start; gap: 7px; line-height: 1.55; }
+.modal .ck input[type=checkbox] { flex: none; width: auto; margin-top: 2px; }
+.modal .ck.tight { margin-top: 10px !important; }
+.ck-row { align-items: flex-start; }
+
+/* --- 弹窗三段分区（动线2） --- */
+.msec {
+  border: 1px solid var(--border); border-radius: 10px;
+  margin-top: 12px; background: var(--panel2); overflow: hidden;
+}
+.msec > summary {
+  cursor: pointer; user-select: none; list-style: none;
+  font-size: 13px; font-weight: 700; padding: 9px 12px;
+}
+.msec > summary::-webkit-details-marker { display: none; }
+.msec > summary::before { content: "▸ "; color: var(--muted); }
+.msec[open] > summary::before { content: "▾ "; }
+.msec > summary:hover { color: var(--accent); }
+.msec .msec-body { padding: 2px 12px 10px; border-top: 1px dashed var(--border); background: var(--panel); }
+.msec .msec-body label { margin-top: 10px; }
+#m-sec-risk[open] { border-left: 3px solid var(--red); }
+#m-sec-cl { background: var(--panel); }
+
+/* --- 高度充满（A8/动线1/3）：内容区与视图撑满 --- */
+#content { display: flex; flex-direction: column; }
+#content > section { flex: 1 0 auto; }
+#content > section[hidden] { display: none; }
+#viewCalendar:not([hidden]) { display: flex; flex-direction: column; }
+#viewCalendar .cal-grid { flex: 1; grid-auto-rows: minmax(92px, 1fr); }
+#viewTimeline:not([hidden]) { display: flex; flex-direction: column; }
+#viewTimeline .gantt-scroll { flex: 1; max-height: none; min-height: 200px; }
+#viewList, #viewToday, #viewInbox, #viewSmart { width: 100%; }
+
+/* --- 卡片双密度（动线1）：紧凑单行，操作 hover 浮出 --- */
+.card { position: relative; }
+.card.dense { padding: 6px 12px 6px 10px; margin-bottom: 5px; align-items: center; gap: 9px; }
+.card.dense .ccircle { margin-top: 0; width: 17px; height: 17px; min-width: 17px; }
+.card.dense .title { font-size: 13.5px; line-height: 1.45; }
+.card.dense .crow1 { display: flex; align-items: baseline; gap: 8px; min-width: 0; flex: 1; }
+.card.dense .crow1 .title { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card.dense .chips-inline { display: flex; align-items: center; gap: 5px; flex-wrap: nowrap; overflow: hidden; flex: 1 0 auto; justify-content: flex-end; }
+.card.dense .chips-inline .chip { white-space: nowrap; flex: none; }
+.card.dense .meta, .card.dense .note, .card.dense .kbar { display: none; }
+.card.dense .acts { display: none; }
+.card.dense:hover .acts, .card.dense:focus-within .acts {
+  display: flex; position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+  background: var(--panel); border: 1px solid var(--border); border-radius: 9px;
+  box-shadow: var(--shadow-lg); padding: 4px; margin: 0; z-index: 30;
+}
+.card.dense:hover .acts button { padding: 3px 9px; font-size: 12px; }
+.card.dense:hover .acts .more-wrap { display: inline-block; }
+/* 紧凑卡状态循环 chip（点击切换 待办→进行中→等待→完成） */
+.chip.stcycle { cursor: pointer; font-weight: 700; border: 1px solid transparent; }
+.chip.stcycle:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+.chip.st-todo { background: var(--chip); color: var(--muted); }
+.chip.st-doing { background: rgba(76,110,245,.12); color: var(--accent); }
+.chip.st-wait { background: rgba(240,140,0,.12); color: var(--orange); }
+.chip.st-done { background: rgba(47,158,68,.12); color: var(--green); }
+/* 紧凑卡 🐸 快捷标（hover 浮现，A5） */
+.card .frog-quick {
+  display: none; flex: none; border: none; background: transparent; cursor: pointer;
+  font-size: 14px; padding: 1px 3px; border-radius: 6px; line-height: 1.4;
+}
+.card:hover .frog-quick { display: inline-block; }
+.card .frog-quick:hover { background: #e7f6ec; }
+.card .frog-quick.on { display: inline-block; background: #e7f6ec; }
+[data-theme="dark"] .card .frog-quick.on, [data-theme="dark"] .card .frog-quick:hover { background: #1d3327; }
+/* 批量选中 / 键盘行高亮（动线2） */
+.card.sel { outline: 2px solid var(--accent); outline-offset: -2px; background: var(--accent-soft); }
+.card.kb-on { box-shadow: 0 0 0 2px var(--accent-2), var(--shadow); }
+.kcard.kb-on { box-shadow: 0 0 0 2px var(--accent-2); }
+
+/* --- 批量操作条（动线2） --- */
+#batchBar {
+  position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%);
+  z-index: 180; display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  background: var(--panel); border: 1px solid var(--accent);
+  border-radius: 12px; box-shadow: var(--shadow-lg); padding: 8px 12px;
+}
+#batchBar .bb-n { font-weight: 700; color: var(--accent); margin-right: 4px; }
+#batchBar .btn { padding: 5px 10px; font-size: 12px; }
+#batchBar select {
+  padding: 4px 6px; border: 1px solid var(--border); border-radius: 7px;
+  background: var(--panel2); font-size: 12px; max-width: 140px;
+}
+#batchBar .bb-move { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--muted); }
+
+/* --- 青蛙空槽一行引导（A5/动线1） --- */
+.frog-empty-hint {
+  flex: 1 1 100%; font-size: 12px; color: var(--muted);
+  padding: 6px 10px; border: 1px dashed var(--border); border-radius: 10px;
+}
+
+/* --- 列表排序选择器（动线2） --- */
+.sortseg {
+  display: inline-flex; align-items: center; gap: 2px;
+  background: var(--panel2); border: 1px solid var(--border); border-radius: 8px; padding: 2px;
+  font-size: 11.5px; margin-left: 10px; font-weight: 400;
+}
+.sortseg button {
+  appearance: none; border: none; background: transparent; color: var(--muted);
+  font-size: 11.5px; padding: 3px 9px; border-radius: 6px; cursor: pointer;
+}
+.sortseg button.on { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+/* 列表手动排序拖拽 */
+.card.drag-src-list { opacity: .4; }
+.card.list-drop-before { box-shadow: 0 -3px 0 0 var(--accent), var(--shadow); }
+.card.list-drop-after { box-shadow: 0 3px 0 0 var(--accent), var(--shadow); }
+
+/* --- 顶栏搜索禁用（A10） --- */
+#search:disabled { opacity: .45; cursor: not-allowed; background: var(--chip); }
+
+/* --- 统计：范围切换 + 满格刻度说明（A7/动线3） --- */
+.stat-range {
+  display: flex; align-items: center; gap: 2px; margin-bottom: 14px;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 4px; width: fit-content;
+}
+.stat-range button {
+  appearance: none; border: none; background: transparent; color: var(--muted);
+  font-size: 12.5px; padding: 5px 13px; border-radius: 7px; cursor: pointer;
+}
+.stat-range button.on { background: var(--accent); color: #fff; font-weight: 600; }
+.hbar-scale { font-size: 11px; color: var(--muted); margin: -3px 0 8px; padding-left: 100px; }
+
+/* --- 统计引导合并卡（降噪） --- */
+.stat-guide { border-left: 3px solid var(--accent); }
+
+/* --- 日历：拖拽 / 当日浮层 / 点空白新建（动线3） --- */
+.cal-cell { position: relative; transition: border-color .12s; }
+.cal-cell.drop-target { border-color: var(--accent); box-shadow: inset 0 0 0 2px var(--accent-soft); cursor: copy; }
+.cal-cell.cal-creatable:hover { border-color: var(--accent); }
+.cal-cell .cal-add-hint {
+  display: none; position: absolute; right: 4px; top: 3px; font-size: 11px;
+  color: var(--accent); background: var(--accent-soft); border-radius: 6px; padding: 0 6px; cursor: pointer;
+}
+.cal-cell.cal-creatable:hover .cal-add-hint { display: block; }
+.cal-drag-ghost {
+  position: fixed; z-index: 300; pointer-events: none; opacity: .9;
+  background: var(--panel); border: 1px solid var(--accent); border-radius: 8px;
+  padding: 3px 9px; font-size: 12px; box-shadow: var(--shadow-lg); max-width: 240px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+body.dragging-cal, body.dragging-cal * { cursor: grabbing !important; user-select: none; }
+.cal-day-pop {
+  position: fixed; z-index: 160; min-width: 240px; max-width: 320px; max-height: 300px; overflow-y: auto;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+  box-shadow: var(--shadow-lg); padding: 8px; animation: pop .15s ease-out;
+}
+.cal-day-pop .cdp-title { font-weight: 700; font-size: 12.5px; padding: 2px 4px 8px; }
+.cal-day-pop .cal-task { font-size: 12px; padding: 4px 6px; border-radius: 7px; }
+.cal-day-pop .cdp-add { width: 100%; text-align: left; border: none; background: transparent; color: var(--accent); font-size: 12px; padding: 6px; border-radius: 7px; cursor: pointer; }
+.cal-day-pop .cdp-add:hover { background: var(--accent-soft); }
+
+/* --- 时间线：拖画新建 / 上周对比虚影（动线3） --- */
+.gbar-ghost { fill-opacity: .28 !important; stroke: var(--accent-2); stroke-dasharray: 4 3; }
+.gbar-ghost-old { fill: #9775fa !important; fill-opacity: .18 !important; stroke: #9775fa; stroke-dasharray: 4 3; }
+
+/* --- 快速添加：语法面板（A6/动线4） --- */
+.q-pop .q-sec { width: 100%; font-size: 11px; color: var(--muted); margin-top: 5px; }
+.q-pop .q-sec:first-child { margin-top: 0; }
+#quickAddRow[hidden] { display: none !important; }
+select.q-proj { max-width: 150px; }
+
+/* --- Markdown 图片（附件粘贴） --- */
+.mdview img, .mdview-inline img { max-width: 100%; border-radius: 8px; border: 1px solid var(--border); margin: 4px 0; }
+
+/* --- 全局搜索结果页（动线3） --- */
+.sr-group { margin-bottom: 18px; }
+.sr-row {
+  display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 9px;
+  cursor: pointer; font-size: 13px; transition: background .12s;
+}
+.sr-row:hover { background: var(--panel2); }
+.sr-row .sr-ico { flex: none; }
+.sr-row .sr-t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.sr-row .sr-t mark { background: rgba(245,184,0,.35); color: inherit; padding: 0 1px; }
+.sr-row .sr-sub { flex: none; color: var(--muted); font-size: 11.5px; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* --- 收件箱：🤖 建议分派（动线4） --- */
+.sugg-chip {
+  display: inline-flex; align-items: center; gap: 4px; font-size: 11px; cursor: pointer;
+  background: var(--accent-soft); color: var(--accent); border-radius: 9px; padding: 1px 8px;
+  border: none; font-weight: 600;
+}
+.sugg-chip:hover { text-decoration: underline; }
+.inbox-sugg-head { color: var(--muted); font-size: 12px; margin: 0 0 10px; padding: 6px 10px; background: var(--accent-soft); border-radius: 9px; }
+
+/* --- 右键菜单（动线2） --- */
+.ctx-menu { position: fixed; z-index: 220; top: 0; left: 0; }
+
+/* --- 设置：AI 供应商行内间距微调 --- */
+.st-sec .hint b { color: var(--text); }

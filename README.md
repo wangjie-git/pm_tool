@@ -103,6 +103,38 @@ cargo tauri build
 
 产物位于 `src-tauri/target/release/bundle/nsis/`。
 
+## 前端代码结构
+
+前端在 `ui/`，是纯 ES Modules（无打包器），入口为 `ui/js/app.js`（按依赖顺序加载各模块，`main.js` 最后执行并调用 `init()`）：
+
+```
+ui/
+  index.html            ← <script type="module" src="js/app.js">
+  js/
+    state.js            ← 全局 S、TODAY、常量、模型选择器（状态唯一来源）
+    backend.js          ← mock 后端（浏览器预览）、invoke 封装、meta 读写
+    utils.js            ← 工具函数、markdown、wikilinks
+    filter.js           ← 过滤/排序
+    tasks.js            ← 任务/项目数据操作、计时器、回收站、跨天重置
+    quickadd.js         ← 快速添加自然语言解析
+    stats.js            ← 统计/蒙特卡洛预测
+    render.js           ← 主渲染循环、侧栏、页头、视图分发
+    views/…             ← 各视图（today/board/calendar/inbox/ideas/decisions/meetings/contacts/dailynote/archive）
+    modals/…            ← 任务编辑、项目设置、新建项目弹窗
+    focus.js gantt.js excel.js report.js ai.js backup.js modal.js
+    shutdown.js settings.js palette.js events.js（事件绑定）
+    compat.js           ← window 桥接（HTML 内联 onclick 引用的函数挂到 window）
+    main.js             ← init 启动流程、导览、页签切换
+```
+
+约定：
+
+- **跨模块可变状态**：`let` 只能由声明所属模块赋值（ES 导入绑定只读）；外部模块需要写时，由所属模块导出 setter（如 `setToday`、`aiSetSelection`、`saveProjectAsTemplateOf`）。
+- **新增被模板字符串 `onclick=` 引用的函数**：需在 `compat.js` 补充导入并挂到 `window`。
+- 改完代码跑 `node tools/check_ids.js` 静态检查（id 引用 / onclick 函数缺失）。
+
+浏览器预览（mock 后端，数据存 localStorage）：`node tools/serve-ui.js` 后访问 http://127.0.0.1:8123/ 。ES Modules 不能通过 `file://` 直开。
+
 ## 发布新版本
 
 本项目配置了 GitHub Actions（[.github/workflows/release.yml](.github/workflows/release.yml)），推送 `v` 开头的标签即自动在 GitHub 服务器上编译并发布 Release：

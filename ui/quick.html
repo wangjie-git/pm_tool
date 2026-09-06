@@ -8,24 +8,44 @@
   html, body { height: 100%; background: transparent; overflow: hidden; }
   body {
     font-family: "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif;
-    display: flex; align-items: center; padding: 0 10px;
+    display: flex; flex-direction: column; justify-content: center; padding: 0 10px;
   }
   #box {
     width: 100%; display: flex; align-items: center; gap: 8px;
     background: #ffffff; border: 1px solid #4c6ef5; border-radius: 14px;
     box-shadow: 0 10px 36px rgba(16,24,40,.28);
-    padding: 12px 14px;
+    padding: 10px 14px 8px;
   }
   @media (prefers-color-scheme: dark) { #box { background: #1c2230; border-color: #6d8bff; } #box input { color: #e6eaf3; } }
+  html[data-theme="dark"] #box { background: #1c2230; border-color: #6d8bff; }
+  html[data-theme="dark"] #box input, html[data-theme="dark"] #prev { color: #e6eaf3; }
+  html[data-theme="dark"] #prev .chip { background: #262e42; color: #aab3c9; }
   .logo { flex: none; width: 26px; height: 26px; border-radius: 8px; background: linear-gradient(135deg,#4c6ef5,#15aabf);
     color: #fff; font-weight: 700; font-size: 14px; display: flex; align-items: center; justify-content: center; }
   #inp {
     flex: 1; border: none; outline: none; background: transparent;
     font-size: 15px; color: #1b2231; font-family: inherit;
   }
+  #proj {
+    flex: none; max-width: 130px; border: 1px solid #dfe3ec; border-radius: 8px;
+    background: #f6f8fb; color: #1b2231; font-size: 12px; padding: 4px 5px; outline: none;
+  }
+  html[data-theme="dark"] #proj { background: #262e42; color: #e6eaf3; border-color: #34405c; }
   .tip { flex: none; font-size: 11px; color: #97a1b8; user-select: none; }
+  /* 回车前实时解析预览 chips（动线4 quick 窗升级） */
+  #prev {
+    display: flex; align-items: center; gap: 5px; flex-wrap: nowrap; overflow: hidden;
+    font-size: 11px; color: #77809a; padding: 0 50px 6px 48px; height: 18px;
+  }
+  #prev .chip {
+    flex: none; background: #edf0f6; color: #77809a; border-radius: 9px; padding: 0 8px; line-height: 16px;
+  }
+  #prev .chip.cd { background: #edf1fe; color: #4c6ef5; font-weight: 600; }
+  #prev .chip.bad { background: rgba(224,49,49,.1); color: #e03131; }
+  #prev .t { font-weight: 600; color: #1b2231; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  html[data-theme="dark"] #prev .t { color: #e6eaf3; }
   #hint {
-    position: fixed; left: 12px; bottom: 8px; font-size: 11px; color: #8a92a8;
+    position: fixed; left: 12px; bottom: 8px; font-size: 11px;
     background: rgba(23,28,38,.85); color: #c5cde0; border-radius: 7px; padding: 3px 9px;
     opacity: 0; transition: opacity .15s; pointer-events: none; max-width: 90%;
   }
@@ -35,18 +55,22 @@
 <body>
   <div id="box">
     <div class="logo">✔</div>
-    <input id="inp" type="text" placeholder="快速捕获：任务内容（今天/明天/下周三/+3天/2026-09-14 · @负责人 · !P0 · #风险）" spellcheck="false" autocomplete="off">
+    <input id="inp" type="text" placeholder="快速捕获：今天/明天/下周三/+3天/2026-09-14 · @负责人 · !P0 · #风险" spellcheck="false" autocomplete="off">
+    <select id="proj" title="加入的项目（记住上次选择）"><option value="0">📥 收件箱</option></select>
     <span class="tip">Enter 保存 · Esc 关闭</span>
   </div>
+  <div id="prev"></div>
   <div id="hint"></div>
 <script>
 'use strict';
-/* 全局快速捕获小窗（包2 #5）：全局热键唤起，默认进收件箱，复用快速添加解析器的精简版 */
+/* 全局快速捕获小窗（包2 #5）：全局热键唤起，默认进收件箱，复用快速添加解析器的精简版
+ * v2.2 升级：回车前实时解析预览 chips；项目下拉并记住上次选择；主题跟随应用设置 */
 const T = () => {
   const d = new Date();
   return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
 };
 function pad(n) { return n < 10 ? '0' + n : '' + n; }
+function esc(s) { return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
 function addDays(s, n) { const p = s.split('-'); const d = new Date(+p[0], +p[1] - 1, +p[2]); d.setDate(d.getDate() + n); return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
 function nextWeekday(cn, nextWeek) {
   const map = { '一': 1, '二': 2, '三': 3, '四': 4, '五': 5, '六': 6, '日': 7, '天': 7 };
@@ -98,6 +122,41 @@ function hint(msg, isErr) {
   el.classList.add('show');
   setTimeout(() => el.classList.remove('show'), 2600);
 }
+/* 实时解析预览：日期 / 负责人 / 优先级 / 风险 / 循环 / 标题 */
+function renderPreview() {
+  const raw = document.getElementById('inp').value;
+  const box = document.getElementById('prev');
+  if (!raw.trim()) { box.innerHTML = ''; return; }
+  const t = parseQuick(raw);
+  const dueLabel = t.due === T() ? '今天' : t.due;
+  box.innerHTML =
+    '<span class="chip cd">📆 ' + esc(dueLabel) + '</span>'
+    + '<span class="chip">👤 ' + esc(t.owner) + '</span>'
+    + '<span class="chip' + (t.pri === 'P0' ? ' bad' : '') + '">' + esc(t.pri) + '</span>'
+    + (t.risk ? '<span class="chip bad">⚠ 风险</span>' : '')
+    + (t.repeat ? '<span class="chip">🔄 ' + esc(({ daily: '每日', weekly: '每周', monthly: '每月' })[t.repeat] || '') + '</span>' : '')
+    + '<span class="t">' + esc(t.title || '继续输入任务内容…') + '</span>';
+}
+async function loadProjects() {
+  try {
+    const { invoke } = window.__TAURI__.core;
+    const data = await invoke('load_app');
+    const sel = document.getElementById('proj');
+    const alive = (data.projects || []).filter(p => !p.archived);
+    let last = null;
+    try { last = localStorage.getItem('quickLastProj'); } catch (e) {}
+    sel.innerHTML = '<option value="0">📥 收件箱</option>'
+      + alive.map(p => '<option value="' + p.id + '"' + (String(p.id) === String(last) ? ' selected' : '') + '>' + esc(p.name) + '</option>').join('');
+    sel.onchange = () => { try { localStorage.setItem('quickLastProj', sel.value); } catch (e) {} };
+  } catch (e) { /* 项目列表加载失败不影响捕获 */ }
+}
+async function applyTheme() {
+  try {
+    const { invoke } = window.__TAURI__.core;
+    const theme = await invoke('get_meta', { key: 'theme' });
+    document.documentElement.dataset.theme = theme === 'dark' ? 'dark' : 'light';
+  } catch (e) {}
+}
 async function saveTask() {
   const inp = document.getElementById('inp');
   const raw = inp.value;
@@ -108,16 +167,18 @@ async function saveTask() {
     /* Tauri 2 的 invoke 在 window.__TAURI__.core 下（v1 的顶层 __TAURI__.invoke 不存在） */
     const { invoke } = window.__TAURI__.core;
     const event = window.__TAURI__.event;
+    const sel = document.getElementById('proj');
     await invoke('upsert_task', {
       task: {
-        id: 0, projectId: 0, title: t.title, due: t.due, owner: t.owner, pri: t.pri,
+        id: 0, projectId: +(sel && sel.value) || 0, title: t.title, due: t.due, owner: t.owner, pri: t.pri,
         status: 'todo', doneAt: '', risk: t.risk, repeat: t.repeat, note: '',
         createdAt: T(), sortOrder: 0, checklistJson: '[]'
       }
     });
     await event.emit('quick-task-added', null);
     inp.value = '';
-    hint('已捕获到收件箱：' + t.title + '（' + t.due + '）');
+    renderPreview();
+    hint('已捕获：' + t.title + '（' + t.due + '）');
     setTimeout(hideWin, 350);
   } catch (e) { hint('保存失败：' + (e && e.message || e), true); }
 }
@@ -129,8 +190,9 @@ inp.addEventListener('keydown', e => {
   if (e.key === 'Enter') { e.preventDefault(); saveTask(); }
   else if (e.key === 'Escape') { e.preventDefault(); hideWin(); }
 });
+inp.addEventListener('input', renderPreview);
 window.addEventListener('blur', () => setTimeout(() => { if (!inp.value.trim()) hideWin(); }, 120));
-setTimeout(() => inp.focus(), 60);
+setTimeout(() => { inp.focus(); applyTheme(); loadProjects(); }, 60);
 </script>
 </body>
 </html>

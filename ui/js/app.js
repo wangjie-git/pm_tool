@@ -1,0 +1,36 @@
+/* 应用入口：仅按依赖顺序加载模块。模块体求值顺序 = import 顺序，
+ * main.js 最后执行并调用 init()，与拆分前"文件末尾调用 init()"时序一致。 */
+import './backend.js';
+import './utils.js';
+import './state.js';
+import './filter.js';
+import './tasks.js';
+import './quickadd.js';
+import './stats.js';
+import './views/inbox.js';
+import './views/today.js';
+import './views/board.js';
+import './views/calendar.js';
+import './views/ideas.js';
+import './views/decisions.js';
+import './views/meetings.js';
+import './views/contacts.js';
+import './views/dailynote.js';
+import './views/archive.js';
+import './render.js';
+import './focus.js';
+import './gantt.js';
+import './excel.js';
+import './report.js';
+import './ai.js';
+import './backup.js';
+import './modal.js';
+import './modals/task-edit.js';
+import './modals/project.js';
+import './modals/newproject.js';
+import './shutdown.js';
+import './settings.js';
+import './palette.js';
+import './events.js';
+import './compat.js';
+import './main.js';

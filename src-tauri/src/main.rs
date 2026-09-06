@@ -72,6 +72,8 @@ struct Task {
     parent_id: i64,
     start_date: String,
     is_milestone: bool,
+    /* 单次提醒（★★★）：YYYY-MM-DD HH:MM，到点弹系统通知后清空 */
+    remind_at: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
@@ -316,7 +318,7 @@ fn project_from_row(r: &Row) -> rusqlite::Result<Project> {
 
 /* 任务列清单：新增列时只改这里，各 SELECT/INSERT 引用同一常量 */
 const TASK_COLS: &str = "id, project_id, title, due, owner, pri, status, done_at, risk, repeat, note, created_at, sort_order, checklist_json, updated_at, \
-defer_count, risk_prob, risk_impact, risk_mitigate, risk_escalate, doing_since, parent_id, start_date, is_milestone";
+defer_count, risk_prob, risk_impact, risk_mitigate, risk_escalate, doing_since, parent_id, start_date, is_milestone, remind_at";
 
 fn task_from_row(r: &Row) -> rusqlite::Result<Task> {
     Ok(Task {
@@ -344,6 +346,7 @@ fn task_from_row(r: &Row) -> rusqlite::Result<Task> {
         parent_id: r.get::<_, Option<i64>>(21)?.unwrap_or(0),
         start_date: r.get::<_, Option<String>>(22)?.unwrap_or_default(),
         is_milestone: r.get::<_, Option<i64>>(23)?.unwrap_or(0) != 0,
+        remind_at: r.get::<_, Option<String>>(24)?.unwrap_or_default(),
     })
 }
 
@@ -504,14 +507,14 @@ fn upsert_task(db: State<Db>, mut task: Task) -> Result<Task, String> {
             "UPDATE tasks SET project_id=?1, title=?2, due=?3, owner=?4, pri=?5, status=?6,
              done_at=?7, risk=?8, repeat=?9, note=?10, created_at=?11, sort_order=?12, checklist_json=?13, updated_at=?14,
              defer_count=?15, risk_prob=?16, risk_impact=?17, risk_mitigate=?18, risk_escalate=?19, doing_since=?20, parent_id=?21,
-             start_date=?22, is_milestone=?23
-             WHERE id=?24",
+             start_date=?22, is_milestone=?23, remind_at=?24
+             WHERE id=?25",
             params![
                 task.project_id, task.title, task.due, task.owner, task.pri, task.status,
                 task.done_at, risk_i, task.repeat, task.note, task.created_at, task.sort_order,
                 cl, ts, task.defer_count, task.risk_prob, task.risk_impact,
                 task.risk_mitigate, task.risk_escalate, task.doing_since, task.parent_id,
-                task.start_date, milestone_i, task.id
+                task.start_date, milestone_i, task.remind_at, task.id
             ],
         )
         .map_err(es)?;
@@ -529,14 +532,14 @@ fn upsert_task(db: State<Db>, mut task: Task) -> Result<Task, String> {
         }
         conn.execute(
             "INSERT INTO tasks (project_id, title, due, owner, pri, status, done_at, risk, repeat, note, created_at, sort_order, checklist_json, updated_at,
-             defer_count, risk_prob, risk_impact, risk_mitigate, risk_escalate, doing_since, parent_id, start_date, is_milestone)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23)",
+             defer_count, risk_prob, risk_impact, risk_mitigate, risk_escalate, doing_since, parent_id, start_date, is_milestone, remind_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24)",
             params![
                 task.project_id, task.title, task.due, task.owner, task.pri, task.status,
                 task.done_at, risk_i, task.repeat, task.note, task.created_at, next, cl, task.updated_at,
                 task.defer_count, task.risk_prob, task.risk_impact,
                 task.risk_mitigate, task.risk_escalate, task.doing_since, task.parent_id,
-                task.start_date, milestone_i
+                task.start_date, milestone_i, task.remind_at
             ],
         )
         .map_err(es)?;
@@ -728,22 +731,26 @@ fn restore_deleted(db: State<Db>, id: i64) -> Result<(), String> {
             Some(id) => id,
             None => tx.last_insert_rowid(),
         };
-        let mut remaps: Vec<(i64, i64)> = Vec::new();
+        /* 先插完全部任务并记录 旧id→新id 映射，再按「新任务 id」逐行改父引用。
+         * 不能按旧父 id 批量 UPDATE：若先前改出的新 id 恰好等于后面某任务的旧 id，
+         * 该批 UPDATE 会把它二次改写，子任务父引用串到别的任务上 */
+        let mut idmap: std::collections::HashMap<i64, i64> = std::collections::HashMap::new();
         for t in &pts {
             let mut t2 = t.clone();
             t2.project_id = pid;
             let old = t2.id;
             let new_id = insert_task_tx(&tx, &t2)?;
-            if old != new_id {
-                remaps.push((old, new_id));
-            }
+            idmap.insert(old, new_id);
         }
-        /* 全部插完后再统一改父引用，避免子任务先于父任务插入时拿到旧父 id */
-        for (old, new_id) in &remaps {
-            let _ = tx.execute(
-                "UPDATE tasks SET parent_id=?1 WHERE parent_id=?2 AND project_id=?3",
-                params![new_id, old, pid],
-            );
+        for t in &pts {
+            if t.parent_id <= 0 { continue; }
+            if let Some(newp) = idmap.get(&t.parent_id) {
+                let newid = idmap.get(&t.id).copied().unwrap_or(t.id);
+                let _ = tx.execute(
+                    "UPDATE tasks SET parent_id=?1 WHERE id=?2",
+                    params![newp, newid],
+                );
+            }
         }
     } else {
         let t: Task = serde_json::from_str(&item.payload).map_err(|e| e.to_string())?;
@@ -772,14 +779,14 @@ fn insert_task_tx(conn: &rusqlite::Connection, t: &Task) -> Result<i64, String> 
     conn.execute(
         &format!(
             "INSERT INTO tasks (id, project_id, title, due, owner, pri, status, done_at, risk, repeat, note, created_at, sort_order, checklist_json, updated_at,
-             defer_count, risk_prob, risk_impact, risk_mitigate, risk_escalate, doing_since, parent_id, start_date, is_milestone)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24)"
+             defer_count, risk_prob, risk_impact, risk_mitigate, risk_escalate, doing_since, parent_id, start_date, is_milestone, remind_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25)"
         ),
         params![
             new_id, t.project_id, t.title, t.due, t.owner, t.pri, t.status, t.done_at,
             t.risk as i64, t.repeat, t.note, t.created_at, t.sort_order, t.checklist_json, t.updated_at,
             t.defer_count, t.risk_prob, t.risk_impact, t.risk_mitigate, t.risk_escalate, t.doing_since,
-            t.parent_id, t.start_date, t.is_milestone as i64
+            t.parent_id, t.start_date, t.is_milestone as i64, t.remind_at
         ],
     )
     .map_err(es)?;
@@ -816,63 +823,71 @@ fn import_data(db: State<Db>, data: AppData) -> Result<(), String> {
     tx.execute("DELETE FROM projects", []).map_err(es)?;
     tx.execute("DELETE FROM ideas", []).map_err(es)?;
     for p in &data.projects {
+        /* id<=0（手工编辑/缺字段的备份经 serde default 补 0）改由 SQLite 自增分配，避免 id=0 幽灵数据或主键冲突 */
+        let pid = if p.id > 0 { Some(p.id) } else { None };
         tx.execute(
             "INSERT INTO projects (id, name, archived, created_at, settings_json) VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![p.id, p.name, p.archived as i64, p.created_at, p.settings_json],
+            params![pid, p.name, p.archived as i64, p.created_at, p.settings_json],
         )
         .map_err(es)?;
     }
     for t in &data.tasks {
+        let tid = if t.id > 0 { Some(t.id) } else { None };
         tx.execute(
             "INSERT INTO tasks (id, project_id, title, due, owner, pri, status, done_at, risk, repeat, note, created_at, sort_order, checklist_json, updated_at,
-             defer_count, risk_prob, risk_impact, risk_mitigate, risk_escalate, doing_since, parent_id, start_date, is_milestone)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24)",
-            params![t.id, t.project_id, t.title, t.due, t.owner, t.pri, t.status, t.done_at,
+             defer_count, risk_prob, risk_impact, risk_mitigate, risk_escalate, doing_since, parent_id, start_date, is_milestone, remind_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25)",
+            params![tid, t.project_id, t.title, t.due, t.owner, t.pri, t.status, t.done_at,
                     t.risk as i64, t.repeat, t.note, t.created_at, t.sort_order, t.checklist_json, t.updated_at,
                     t.defer_count, t.risk_prob, t.risk_impact, t.risk_mitigate, t.risk_escalate, t.doing_since,
-                    t.parent_id, t.start_date, t.is_milestone as i64],
+                    t.parent_id, t.start_date, t.is_milestone as i64, t.remind_at],
         )
         .map_err(es)?;
     }
     for i in &data.ideas {
+        let iid = if i.id > 0 { Some(i.id) } else { None };
         tx.execute(
             "INSERT INTO ideas (id, title, note, value, effort, converted, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            params![i.id, i.title, i.note, i.value, i.effort, i.converted, i.created_at],
+            params![iid, i.title, i.note, i.value, i.effort, i.converted, i.created_at],
         )
         .map_err(es)?;
     }
     if !data.time_logs.is_empty() {
         tx.execute("DELETE FROM time_logs", []).map_err(es)?;
         for l in &data.time_logs {
+            let lid = if l.id > 0 { Some(l.id) } else { None };
             tx.execute(
                 "INSERT INTO time_logs (id, task_id, project_id, date, minutes, note) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                params![l.id, l.task_id, l.project_id, l.date, l.minutes, l.note],
+                params![lid, l.task_id, l.project_id, l.date, l.minutes, l.note],
             )
             .map_err(es)?;
         }
     }
     tx.execute("DELETE FROM decisions", []).map_err(es)?;
     for d in &data.decisions {
+        let did = if d.id > 0 { Some(d.id) } else { None };
         tx.execute(
             "INSERT INTO decisions (id, project_id, title, background, options, decision, reason, date, status, task_id, meeting_id, created_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
-            params![d.id, d.project_id, d.title, d.background, d.options, d.decision, d.reason, d.date, d.status, d.task_id, d.meeting_id, d.created_at],
+            params![did, d.project_id, d.title, d.background, d.options, d.decision, d.reason, d.date, d.status, d.task_id, d.meeting_id, d.created_at],
         )
         .map_err(es)?;
     }
     tx.execute("DELETE FROM meetings", []).map_err(es)?;
     for m in &data.meetings {
+        let mid = if m.id > 0 { Some(m.id) } else { None };
         tx.execute(
             "INSERT INTO meetings (id, date, title, attendees, conclusion, project_id, items_json, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-            params![m.id, m.date, m.title, m.attendees, m.conclusion, m.project_id, m.items_json, m.created_at],
+            params![mid, m.date, m.title, m.attendees, m.conclusion, m.project_id, m.items_json, m.created_at],
         )
         .map_err(es)?;
     }
     tx.execute("DELETE FROM contacts", []).map_err(es)?;
     for c in &data.contacts {
+        let cid = if c.id > 0 { Some(c.id) } else { None };
         tx.execute(
             "INSERT INTO contacts (id, name, org, tags, projects, note, last_contact, followup_days, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-            params![c.id, c.name, c.org, c.tags, c.projects, c.note, c.last_contact, c.followup_days, c.created_at],
+            params![cid, c.name, c.org, c.tags, c.projects, c.note, c.last_contact, c.followup_days, c.created_at],
         )
         .map_err(es)?;
     }
@@ -1102,6 +1117,61 @@ fn save_binary_file(path: String, data_base64: String) -> Result<(), String> {
         .decode(data_base64.as_bytes())
         .map_err(|e| format!("base64 解码失败：{}", e))?;
     fs::write(&path, bytes).map_err(|e| e.to_string())
+}
+
+/* 附件目录（★★★ 备注粘贴截图）：appdata/attachments，不存在则创建；前端缓存后拼 att: 图片地址 */
+#[tauri::command]
+fn attachments_dir(app: tauri::AppHandle) -> Result<String, String> {
+    let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let att = dir.join("attachments");
+    fs::create_dir_all(&att).map_err(|e| e.to_string())?;
+    Ok(att.to_string_lossy().to_string())
+}
+
+/* 前缀列举 meta（全局搜索每日笔记用：dailyNote_{date} 的正文扫描） */
+#[derive(Serialize)]
+struct MetaRow {
+    key: String,
+    value: String,
+}
+
+#[tauri::command]
+fn list_meta_prefix(db: State<Db>, prefix: String) -> Result<Vec<MetaRow>, String> {
+    let conn = db.0.lock().map_err(|e| e.to_string())?;
+    let mut stmt = conn
+        .prepare("SELECT key, value FROM meta WHERE key LIKE ?1 || '%' ORDER BY key DESC LIMIT 400")
+        .map_err(es)?;
+    let rows = stmt
+        .query_map(params![prefix], |r| {
+            Ok(MetaRow {
+                key: r.get(0)?,
+                value: r.get::<_, Option<String>>(1)?.unwrap_or_default(),
+            })
+        })
+        .map_err(es)?;
+    let mut out = vec![];
+    for r in rows {
+        out.push(r.map_err(es)?);
+    }
+    Ok(out)
+}
+
+/* 全量 meta（JSON 备份用）：每日笔记/收尾问答/智能视图/模板/AI 配置都在 meta 表 */
+fn read_all_meta(conn: &Connection) -> rusqlite::Result<Vec<MetaRow>> {
+    let mut stmt = conn.prepare("SELECT key, value FROM meta ORDER BY key")?;
+    let rows = stmt.query_map([], |r| {
+        Ok(MetaRow {
+            key: r.get(0)?,
+            value: r.get::<_, Option<String>>(1)?.unwrap_or_default(),
+        })
+    })?;
+    rows.collect()
+}
+
+#[tauri::command]
+fn list_all_meta(db: State<Db>) -> Result<Vec<MetaRow>, String> {
+    let conn = db.0.lock().map_err(|e| e.to_string())?;
+    read_all_meta(&conn).map_err(es)
 }
 
 /* ---------- 包5：Excel 解析（calamine）与导出（rust_xlsxwriter） ---------- */
@@ -1341,6 +1411,45 @@ fn md_escape_frontmatter(s: &str) -> String {
     s.replace('\\', "\\\\").replace('"', "\\\"").replace('\n', " ")
 }
 
+/* 导出 MD 时把备注里 att: 引用的附件拷进导出目录，并把链接改写为相对路径（★★★ 附件粘贴配套） */
+fn export_note_with_attachments(app: &tauri::AppHandle, note: &str, out_att_dir: &std::path::Path) -> String {
+    let src_dir = match app.path().app_data_dir() {
+        Ok(d) => d.join("attachments"),
+        Err(_) => return note.to_string(),
+    };
+    let mut out = note.to_string();
+    /* 手工扫描 (att:NAME)，避免引入 regex 依赖 */
+    let mut names: Vec<String> = vec![];
+    let mut cursor = 0usize;
+    loop {
+        let rel = match out[cursor..].find("(att:") {
+            Some(p) => p,
+            None => break,
+        };
+        let start = cursor + rel + 5;
+        let end = match out[start..].find(')') {
+            Some(e) => start + e,
+            None => break,
+        };
+        let name = out[start..end].trim().to_string();
+        if !name.is_empty() && !names.iter().any(|x| x == &name) {
+            names.push(name);
+        }
+        cursor = end;
+    }
+    for name in names {
+        let src = src_dir.join(&name);
+        if src.exists() {
+            let _ = fs::create_dir_all(out_att_dir);
+            let dst = out_att_dir.join(&name);
+            if fs::copy(&src, &dst).is_ok() {
+                out = out.replace(&format!("(att:{})", name), &format!("(attachments/{})", name));
+            }
+        }
+    }
+    out
+}
+
 #[tauri::command(async)]
 fn export_project_md(app: tauri::AppHandle, db: State<Db>, dir: String, project_id: i64) -> Result<String, String> {
     let conn = db.0.lock().map_err(|e| e.to_string())?;
@@ -1400,7 +1509,8 @@ fn export_project_md(app: tauri::AppHandle, db: State<Db>, dir: String, project_
         fm.push_str("---\n");
         let mut body = String::new();
         if !t.note.trim().is_empty() {
-            body.push_str(&t.note.trim());
+            let note_exp = export_note_with_attachments(&app, &t.note, &root.join("attachments"));
+            body.push_str(note_exp.trim());
             body.push_str("\n\n");
         }
         let cl: Vec<serde_json::Value> = serde_json::from_str(&t.checklist_json).unwrap_or_default();
@@ -2177,9 +2287,18 @@ fn read_text_file(path: String) -> Result<String, String> {
 
 fn backup_to_dir(conn: &Connection, dir: &PathBuf) -> Result<String, String> {
     let data = read_all(conn).map_err(es)?;
+    /* meta 一并写入备份：每日笔记/收尾问答等存 meta 表，缺了它们换机恢复即丢数据 */
+    let mut v = serde_json::to_value(&data).map_err(|e| e.to_string())?;
+    if let Some(obj) = v.as_object_mut() {
+        if let Ok(rows) = read_all_meta(conn) {
+            if let Ok(mv) = serde_json::to_value(rows) {
+                obj.insert("meta".into(), mv);
+            }
+        }
+    }
+    let json = serde_json::to_string_pretty(&v).map_err(|e| e.to_string())?;
     let name = format!("pm-backup-{}.json", today_str());
     let path = dir.join(name);
-    let json = serde_json::to_string_pretty(&data).map_err(|e| e.to_string())?;
     fs::write(&path, json).map_err(|e| e.to_string())?;
     // 只保留最近 30 份
     let mut files: Vec<PathBuf> = fs::read_dir(dir)
@@ -2264,11 +2383,49 @@ fn is_hm(s: &str) -> bool {
         && b[3..].iter().all(|c| c.is_ascii_digit())
 }
 
+/* 单任务一次性提醒（★★★ remind_at，「开会前提醒我」）：到点发系统通知后清空字段防重发 */
+fn remind_at_scan(h: &tauri::AppHandle) {
+    let now_ts = chrono::Local::now().format("%Y-%m-%d %H:%M").to_string();
+    let state = h.state::<Db>();
+    let conn = match state.0.lock() {
+        Ok(c) => c,
+        Err(_) => return,
+    };
+    let mut out: Vec<Task> = vec![];
+    let prepared = conn.prepare(&format!(
+        "SELECT {} FROM tasks WHERE remind_at != '' AND remind_at <= ?1 AND status != 'done' LIMIT 5",
+        TASK_COLS
+    ));
+    let mut stmt = match prepared {
+        Ok(s2) => s2,
+        Err(_) => return,
+    };
+    let mapped = stmt.query_map(params![now_ts], task_from_row);
+    if let Ok(it) = mapped {
+        for r in it {
+            if let Ok(t) = r {
+                out.push(t);
+            }
+        }
+    }
+    for t in out {
+        let _ = conn.execute("UPDATE tasks SET remind_at='' WHERE id=?1", params![t.id]);
+        let _ = h
+            .notification()
+            .builder()
+            .title("PM 待办助手 · 任务提醒")
+            .body(format!("⏰ {}（截止 {}）—— 到你设定的提醒时间了", t.title, t.due))
+            .show();
+    }
+}
+
 fn daily_reminder_loop(h: tauri::AppHandle) {
     loop {
         std::thread::sleep(std::time::Duration::from_secs(30));
         /* 工时预算告警（每档每天最多一次，内部有去重） */
         budget_alerts_check(&h);
+        /* 单任务一次性提醒（remind_at，★★★「开会前提醒我」） */
+        remind_at_scan(&h);
         let now_hm = chrono::Local::now().format("%H:%M").to_string();
         let state = h.state::<Db>();
         let conn = match state.0.lock() {
@@ -2568,6 +2725,12 @@ fn main() {
                 "is_milestone",
                 "ALTER TABLE tasks ADD COLUMN is_milestone INTEGER NOT NULL DEFAULT 0",
             );
+            ensure_column(
+                &conn,
+                "tasks",
+                "remind_at",
+                "ALTER TABLE tasks ADD COLUMN remind_at TEXT NOT NULL DEFAULT ''",
+            );
             seed_if_empty(&conn);
             // 每日提醒默认 09:30，已有设置则不动（可随时在界面改为「关闭」）
             let _ = conn.execute(
@@ -2598,7 +2761,7 @@ fn main() {
                 tauri::WebviewUrl::App("quick.html".into()),
             )
             .title("快速捕获")
-            .inner_size(640.0, 76.0)
+            .inner_size(640.0, 118.0)
             .decorations(false)
             .resizable(false)
             .always_on_top(true)
@@ -2725,6 +2888,9 @@ fn main() {
             quick_hide,
             set_quick_hotkey,
             save_binary_file,
+            attachments_dir,
+            list_meta_prefix,
+            list_all_meta,
             xlsx_sheets,
             xlsx_read,
             export_xlsx,

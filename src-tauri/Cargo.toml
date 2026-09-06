@@ -1,14 +1,14 @@
-[package]
+﻿[package]
 name = "pm-todo"
-version = "2.1.0"
-description = "PM 待办助手 - 本地项目管理工具"
+version = "2.2.0"
+description = "PM 瀵板懎濮欓崝鈺傚 - 閺堫剙婀存い鍦窗缁狅紕鎮婂銉ュ徔"
 edition = "2021"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["tray-icon", "image-png"] }
+tauri = { version = "2", features = ["tray-icon", "image-png", "protocol-asset"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-notification = "2"
 tauri-plugin-global-shortcut = "2"

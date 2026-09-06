@@ -13,6 +13,12 @@ tools/wx_read.json
 .grep-*.txt
 tools/hook_received.jsonl
 
+# 本地备份与交付产物
+*.bak-*
+backup_*.zip
+*-交付.zip
+.opensquilla/
+
 # Node / 前端
 node_modules/
 dist/

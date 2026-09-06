@@ -11,7 +11,7 @@
   <aside id="sidebar">
     <div class="brand">
       <div class="logo">✔</div>
-      <div class="brand-txt"><b>PM 待办助手</b><small>本地项目管理 v2.0</small></div>
+      <div class="brand-txt"><b>PM 待办助手</b><small>本地项目管理 v2.2</small></div>
     </div>
 
     <nav id="todayNav"></nav>
@@ -76,16 +76,12 @@
         <span class="flex1"></span>
         <div id="statsbar"></div>
       </div>
-      <div class="quickadd">
-        <input id="quick" type="text" placeholder="输入任务，回车添加；或用右侧按钮插入日期/负责人/优先级">
+      <div class="quickadd" id="quickAddRow">
+        <input id="quick" type="text" placeholder="输入任务，回车添加；输入 / 呼出语法面板">
         <div class="q-tools">
-          <select id="qProj" class="q-proj" hidden title="今日聚焦模式下，选择任务加入的项目"></select>
+          <select id="qProj" class="q-proj" title="选择任务加入的项目"></select>
           <button id="q-inbox" title="收件箱模式：先不分项目，快速记下，之后分拣">📥</button>
-          <button id="q-date" title="选择日期">📅</button>
-          <button id="q-owner" title="选择负责人">👤</button>
-          <button id="q-pri" title="优先级（点击切换 P0/P1/P2）">🚩</button>
-          <button id="q-risk" title="标记风险（⚠ 日报风险栏）">⚠️</button>
-          <button id="q-repeat" title="每日循环任务">🔄</button>
+          <button id="q-syntax" title="日期 / 负责人 / 优先级 / 风险 / 循环 语法面板（输入 / 也可呼出）">？</button>
           <button id="q-aitask" title="AI 粘贴转任务：把会议记录 / 群聊 / 邮件整段粘进来，自动拆成任务草稿">🤖</button>
         </div>
         <button class="btn blue" id="btnQuickAdd">＋ 添加</button>
@@ -102,6 +98,7 @@
       <section id="viewMeetings" hidden></section>
       <section id="viewContacts" hidden></section>
       <section id="viewDailyNote" hidden></section>
+      <section id="viewSearch" hidden></section>
       <section id="viewList" hidden></section>
       <section id="viewKanban" hidden></section>
       <section id="viewCalendar" hidden></section>
@@ -122,12 +119,12 @@
   <button class="btn danger ghost" onclick="stopTimerFlow(false)">⏹ 停止并记录工时</button>
 </div>
 
-<!-- 任务编辑 -->
+<!-- 任务编辑（v2.2 三段分区：基本信息默认展开；风险登记册勾 ⚠ 展开；清单与备注默认收起） -->
 <div class="mwrap" id="mw-task" hidden>
   <div class="modal">
     <h3 id="tm-head">编辑事项</h3>
     <div class="title-line">
-      <input type="text" id="m-title" placeholder="要做什么？">
+      <input type="text" id="m-title" placeholder="要做什么？（Enter 保存）">
     </div>
     <div class="mrow">
       <div><label>截止日期</label><input type="date" id="m-due"></div>
@@ -141,7 +138,6 @@
       </div>
     </div>
     <div class="mrow">
-      <div><label>开始日期（时间线视图用，可空）</label><input type="date" id="m-start"></div>
       <div><label>状态</label>
         <select id="m-status">
           <option value="todo">待办</option>
@@ -149,6 +145,13 @@
           <option value="wait">等人/等外部</option>
           <option value="done">已完成</option>
         </select>
+      </div>
+      <div><label>所属项目</label><select id="m-proj"></select></div>
+      <div><label>开始日期（时间线用，可空）</label><input type="date" id="m-start"></div>
+    </div>
+    <div class="mrow">
+      <div><label>父任务（进度自动上卷）</label>
+        <select id="m-parent"><option value="0">（无父任务）</option></select>
       </div>
       <div><label>循环</label>
         <select id="m-repeat">
@@ -158,22 +161,16 @@
           <option value="monthly">🔄 每月</option>
         </select>
       </div>
+      <div><label>单次提醒（开会前提醒我）</label><input type="datetime-local" id="m-remind" title="到点弹系统通知并清空；留空不提醒"></div>
     </div>
-    <div class="mrow">
-      <div><label>父任务（进度自动上卷）</label>
-        <select id="m-parent"><option value="0">（无父任务）</option></select>
-      </div>
-      <div><label>&nbsp;</label>
-        <label class="ck"><input type="checkbox" id="m-risk"> ⚠ 计入日报风险栏</label>
-      </div>
-      <div><label>&nbsp;</label>
-        <label class="ck"><input type="checkbox" id="m-milestone"> 🏁 里程碑（时间线画菱形）</label>
-      </div>
+    <div class="mrow ck-row">
+      <div class="grow2"><label class="ck tight"><input type="checkbox" id="m-risk"> ⚠ 计入日报风险栏（勾选展开风险登记册）</label></div>
+      <div class="grow2"><label class="ck tight"><input type="checkbox" id="m-milestone"> 🏁 里程碑（时间线画菱形）</label></div>
     </div>
-    <!-- 风险登记册（#6）：概率×影响评分 -->
-    <div id="m-risk-box" hidden>
+    <!-- 风险登记册（#6）：概率×影响评分（勾选 ⚠ 展开，由 updateRiskEditor 控制 open） -->
+    <details class="msec" id="m-sec-risk">
+      <summary>🛡 风险登记册 <span class="hint-inline">概率 × 影响评分，≥15 强制进日报</span></summary>
       <div class="risk-box">
-        <div class="risk-box-title">🛡 风险登记册（PingCode 风险模板）</div>
         <div class="mrow">
           <div><label>发生概率 1-5</label>
             <select id="m-prob"><option value="0">未评分</option><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option></select>
@@ -188,25 +185,31 @@
         <label>升级条件（何时上报谁）</label>
         <textarea id="m-escalate" rows="2" placeholder="如：若本周五前未签合同，上报分管领导决策"></textarea>
       </div>
-    </div>
-    <label>检查清单 <span class="hint-inline">（回车快速添加，完成后卡片显示进度）</span></label>
-    <div id="m-cl-items"></div>
-    <div class="cl-add">
-      <input type="text" id="m-cl-input" placeholder="添加清单项，回车确认">
-      <button class="btn ghost" id="m-cl-ai" title="AI 根据任务标题 / 备注生成检查清单草稿（可改可删后再保存）">🤖</button>
-      <button class="btn ghost" id="m-cl-add">＋</button>
-    </div>
-    <label>备注（支持 Markdown：列表 / **粗体** / > 引用 / [[任务反链]]）</label>
-    <textarea id="m-note"></textarea>
-    <div class="note-preview-row">
-      <button class="linkbtn2" id="m-note-preview-toggle" onclick="toggleNotePreview()">👁 预览渲染效果</button>
-      <div id="m-note-preview" class="mdview" hidden></div>
-    </div>
+    </details>
+    <details class="msec" id="m-sec-cl">
+      <summary>☑ 清单与备注 <span class="hint-inline" id="m-sec-cl-sum"></span></summary>
+      <div class="msec-body">
+        <label>检查清单 <span class="hint-inline">（回车快速添加，完成后卡片显示进度）</span></label>
+        <div id="m-cl-items"></div>
+        <div class="cl-add">
+          <input type="text" id="m-cl-input" placeholder="添加清单项，回车确认">
+          <button class="btn ghost" id="m-cl-ai" title="AI 根据任务标题 / 备注生成检查清单草稿（可改可删后再保存）">🤖</button>
+          <button class="btn ghost" id="m-cl-add">＋</button>
+        </div>
+        <label>备注（支持 Markdown；可 Ctrl+V 粘贴截图，Enter 保存 / Ctrl+Enter 也保存）</label>
+        <textarea id="m-note"></textarea>
+        <div class="note-preview-row">
+          <button class="linkbtn2" id="m-note-preview-toggle" onclick="toggleNotePreview()">👁 预览渲染效果</button>
+          <div id="m-note-preview" class="mdview" hidden></div>
+        </div>
+      </div>
+    </details>
     <div id="m-backlinks" class="backlink-box" hidden></div>
     <div class="mfoot">
       <button class="btn danger ghost" id="m-del">删除</button>
       <span class="flex1"></span>
       <button class="btn ghost" id="m-cancel">取消</button>
+      <button class="btn ghost" id="m-save-new" title="保存当前，并立即打开新建窗口（所属项目不变）">保存并新建</button>
       <button class="btn blue" id="m-save">保存</button>
     </div>
   </div>
@@ -376,8 +379,10 @@
       <div class="st-sec" data-sec="general">
         <label>每日收尾问答时间（Sunsama Shutdown，留空关闭；到点弹站会三问）</label>
         <input type="time" id="st-shutdown">
+        <label class="ck big"><input type="checkbox" id="st-density" checked> 任务卡紧凑密度（单行卡片，一屏多看一倍；取消勾选为舒适密度）</label>
         <div class="hint" style="margin-top:10px;">
           每日到期任务提醒：点左下角 <b>⏰</b> 设置时间 · 明暗主题：点左下角 <b>🌙</b><br>
+          快捷键：<b>N</b> 新建 · <b>1-7</b> 切视图 · <b>J/K 或 ↑↓</b> 选任务 · <b>空格</b> 完成 · <b>X</b> 选中 · <b>Ctrl+Shift+点选</b> 批量 · <b>/</b> 搜索 · <b>Ctrl+K</b> 直达（中文输入法开启也可用）<br>
           数据安全：本机 SQLite 存储，启动自动备份（保留最近 30 份），JSON / CSV / Excel 导入导出见「💾 数据」节与项目工具菜单「⋯」
         </div>
       </div>
@@ -464,6 +469,11 @@
       <div><label>🚩 优先级</label>
         <select id="sv-pri"><option value="">不限</option><option value="P0">P0</option><option value="P1">P1</option><option value="P2">P2</option></select>
       </div>
+    </div>
+    <label>或用一句话描述（自动勾选上面的条件）</label>
+    <div class="mrow">
+      <div class="grow2"><input type="text" id="sv-nl" placeholder="如：逾期且有风险的 P0"></div>
+      <div style="flex:0 0 auto;"><button class="btn ghost" id="sv-nl-parse" style="margin-top:0;">🔍 解析</button></div>
     </div>
     <div class="mfoot">
       <span class="flex1"></span>
@@ -648,7 +658,22 @@
   </div>
 </div>
 
+<!-- 右键菜单（动线2：卡片右键 = ⋯ 菜单同款；侧栏项目右键 = 设置/模板/导出） -->
+<div id="ctxMenu" class="menu-pop ctx-menu" hidden></div>
+
+<!-- 批量操作条（动线2：Ctrl/Shift 多选后浮出） -->
+<div id="batchBar" hidden>
+  <span class="bb-n" id="bbCount">已选 0 项</span>
+  <button class="btn ghost" onclick="batchStatus('done')">✔ 完成</button>
+  <button class="btn ghost" onclick="batchStatus('doing')">🔨 进行中</button>
+  <button class="btn ghost" onclick="batchSnoozeSel()">⏭ 推到明天</button>
+  <span class="bb-move">📂 移到 <select id="bbProj"></select></span>
+  <button class="btn ghost" onclick="batchMoveSel()">移到项目</button>
+  <button class="btn danger ghost" onclick="batchDeleteSel()">🗑 删除</button>
+  <button class="btn ghost" onclick="clearSelection()">取消选择</button>
+</div>
+
 <div id="toasts"></div>
-<script src="app.js"></script>
+<script type="module" src="js/app.js"></script>
 </body>
 </html>
