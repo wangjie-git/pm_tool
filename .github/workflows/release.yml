@@ -28,6 +28,18 @@ jobs:
         with:
           workspaces: src-tauri
 
+      # 防御：部分编辑器会把 UTF-8 BOM 写进 Cargo.toml，TOML 解析不接受 BOM
+      - name: 剥离配置文件 BOM
+        shell: pwsh
+        run: |
+          foreach ($p in @("src-tauri/Cargo.toml", "src-tauri/tauri.conf.json")) {
+            $b = [System.IO.File]::ReadAllBytes($p)
+            if ($b.Length -ge 3 -and $b[0] -eq 0xEF -and $b[1] -eq 0xBB -and $b[2] -eq 0xBF) {
+              [System.IO.File]::WriteAllBytes($p, $b[3..($b.Length - 1)])
+              Write-Host "stripped BOM: $p"
+            }
+          }
+
       - name: 构建并上传到 Release
         uses: tauri-apps/tauri-action@v0
         env:
