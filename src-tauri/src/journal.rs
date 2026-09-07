@@ -24,6 +24,11 @@ pub fn upsert_decision(db: State<Db>, mut d: Decision) -> Result<Decision, Strin
     if d.status.trim().is_empty() { d.status = "生效中".into(); }
     if d.date.trim().is_empty() { d.date = today_str(); }
     if d.id > 0 {
+        if d.created_at.is_empty() {
+            if let Ok(cat) = conn.query_row("SELECT created_at FROM decisions WHERE id=?1", params![d.id], |r| r.get(0)) {
+                d.created_at = cat;
+            }
+        }
         let n = conn
             .execute(
                 "UPDATE decisions SET project_id=?1, title=?2, background=?3, options=?4, decision=?5, reason=?6, date=?7, status=?8, task_id=?9, meeting_id=?10 WHERE id=?11",
@@ -64,6 +69,11 @@ pub fn upsert_meeting(db: State<Db>, mut m: Meeting) -> Result<Meeting, String> 
     if m.items_json.trim().is_empty() { m.items_json = "[]".into(); }
     if m.date.trim().is_empty() { m.date = today_str(); }
     if m.id > 0 {
+        if m.created_at.is_empty() {
+            if let Ok(cat) = conn.query_row("SELECT created_at FROM meetings WHERE id=?1", params![m.id], |r| r.get(0)) {
+                m.created_at = cat;
+            }
+        }
         let n = conn
             .execute(
                 "UPDATE meetings SET date=?1, title=?2, attendees=?3, conclusion=?4, project_id=?5, items_json=?6 WHERE id=?7",
@@ -102,6 +112,11 @@ pub fn upsert_contact(db: State<Db>, mut c: Contact) -> Result<Contact, String> 
     let conn = db.0.lock().map_err(|e| e.to_string())?;
     c.followup_days = c.followup_days.clamp(1, 365);
     if c.id > 0 {
+        if c.created_at.is_empty() {
+            if let Ok(cat) = conn.query_row("SELECT created_at FROM contacts WHERE id=?1", params![c.id], |r| r.get(0)) {
+                c.created_at = cat;
+            }
+        }
         let n = conn
             .execute(
                 "UPDATE contacts SET name=?1, org=?2, tags=?3, projects=?4, note=?5, last_contact=?6, followup_days=?7 WHERE id=?8",

@@ -78,9 +78,7 @@ fn trash_insert(conn: &Connection, kind: &str, payload: &str, summary: &str) -> 
     Ok(conn.last_insert_rowid())
 }
 
-#[tauri::command]
-pub fn delete_task(db: State<Db>, id: i64) -> Result<i64, String> {
-    let mut conn = db.0.lock().map_err(|e| e.to_string())?;
+pub fn delete_task_conn(conn: &mut Connection, id: i64) -> Result<i64, String> {
     /* 递归收集全部子孙任务：删父任务时一并删除，否则子任务变成界面上不可见但仍计数/提醒的孤儿 */
     let mut all_ids = vec![id];
     let mut i = 0;
@@ -120,13 +118,31 @@ pub fn delete_task(db: State<Db>, id: i64) -> Result<i64, String> {
     for tid in &all_ids {
         tx.execute("DELETE FROM tasks WHERE id=?1", params![tid]).map_err(es)?;
     }
+    let timer_task_id: Option<String> = tx
+        .query_row(
+            "SELECT value FROM meta WHERE key='timerTaskId'",
+            [],
+            |r| r.get(0),
+        )
+        .ok();
+    if let Some(ref tid_str) = timer_task_id {
+        if let Ok(tid_num) = tid_str.parse::<i64>() {
+            if all_ids.contains(&tid_num) {
+                let _ = tx.execute("DELETE FROM meta WHERE key IN ('timerTaskId', 'timerStart')", []);
+            }
+        }
+    }
     tx.commit().map_err(es)?;
     Ok(trash_id)
 }
 
 #[tauri::command]
-pub fn delete_project(db: State<Db>, id: i64) -> Result<i64, String> {
+pub fn delete_task(db: State<Db>, id: i64) -> Result<i64, String> {
     let mut conn = db.0.lock().map_err(|e| e.to_string())?;
+    delete_task_conn(&mut conn, id)
+}
+
+pub fn delete_project_conn(conn: &mut Connection, id: i64) -> Result<i64, String> {
     let p: Option<Project> = conn
         .query_row(
             "SELECT id, name, archived, created_at, settings_json FROM projects WHERE id=?1",
@@ -152,12 +168,42 @@ pub fn delete_project(db: State<Db>, id: i64) -> Result<i64, String> {
     }
     let payload = serde_json::to_string(&serde_json::json!({ "project": p, "tasks": pts }))
         .map_err(|e| e.to_string())?;
+    let timer_task_id: Option<String> = conn
+        .query_row(
+            "SELECT value FROM meta WHERE key='timerTaskId'",
+            [],
+            |r| r.get(0),
+        )
+        .ok();
+    let is_timing_in_proj = if let Some(ref tid_str) = timer_task_id {
+        if let Ok(tid_num) = tid_str.parse::<i64>() {
+            conn.query_row(
+                "SELECT 1 FROM tasks WHERE id=?1 AND project_id=?2",
+                params![tid_num, id],
+                |_| Ok(true),
+            )
+            .unwrap_or(false)
+        } else {
+            false
+        }
+    } else {
+        false
+    };
     let tx = conn.transaction().map_err(es)?;
     let trash_id = trash_insert(&tx, "project", &payload, &format!("{}（含 {} 条事项）", p.name, pts.len()))?;
     tx.execute("DELETE FROM tasks WHERE project_id=?1", params![id]).map_err(es)?;
     tx.execute("DELETE FROM projects WHERE id=?1", params![id]).map_err(es)?;
+    if is_timing_in_proj {
+        let _ = tx.execute("DELETE FROM meta WHERE key IN ('timerTaskId', 'timerStart')", []);
+    }
     tx.commit().map_err(es)?;
     Ok(trash_id)
+}
+
+#[tauri::command]
+pub fn delete_project(db: State<Db>, id: i64) -> Result<i64, String> {
+    let mut conn = db.0.lock().map_err(|e| e.to_string())?;
+    delete_project_conn(&mut conn, id)
 }
 
 #[tauri::command]
@@ -343,5 +389,51 @@ pub fn purge_deleted(db: State<Db>, id: Option<i64>) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::init_db;
+
+    #[test]
+    fn delete_task_clears_timer_when_task_is_timed() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        init_db(&conn).unwrap();
+        conn.execute("INSERT INTO tasks (id, title) VALUES (101, 'Test Task')", []).unwrap();
+        conn.execute("INSERT INTO meta (key, value) VALUES ('timerTaskId', '101'), ('timerStart', '123456')", []).unwrap();
+
+        delete_task_conn(&mut conn, 101).unwrap();
+
+        let count: i64 = conn.query_row("SELECT COUNT(*) FROM meta WHERE key IN ('timerTaskId', 'timerStart')", [], |r| r.get(0)).unwrap();
+        assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn delete_task_preserves_timer_when_other_task_is_timed() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        init_db(&conn).unwrap();
+        conn.execute("INSERT INTO tasks (id, title) VALUES (101, 'Task 1'), (102, 'Task 2')", []).unwrap();
+        conn.execute("INSERT INTO meta (key, value) VALUES ('timerTaskId', '102'), ('timerStart', '123456')", []).unwrap();
+
+        delete_task_conn(&mut conn, 101).unwrap();
+
+        let count: i64 = conn.query_row("SELECT COUNT(*) FROM meta WHERE key IN ('timerTaskId', 'timerStart')", [], |r| r.get(0)).unwrap();
+        assert_eq!(count, 2);
+    }
+
+    #[test]
+    fn delete_project_clears_timer_when_task_in_project_is_timed() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        init_db(&conn).unwrap();
+        conn.execute("INSERT INTO projects (id, name) VALUES (5, 'Project 5')", []).unwrap();
+        conn.execute("INSERT INTO tasks (id, project_id, title) VALUES (101, 5, 'Task 101')", []).unwrap();
+        conn.execute("INSERT INTO meta (key, value) VALUES ('timerTaskId', '101'), ('timerStart', '123456')", []).unwrap();
+
+        delete_project_conn(&mut conn, 5).unwrap();
+
+        let count: i64 = conn.query_row("SELECT COUNT(*) FROM meta WHERE key IN ('timerTaskId', 'timerStart')", [], |r| r.get(0)).unwrap();
+        assert_eq!(count, 0);
+    }
 }
 

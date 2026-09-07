@@ -84,7 +84,11 @@ export async function deleteProjectFlow() {
     S.projects = S.projects.filter(x => x.id != p.id);
     S.tasks = S.tasks.filter(t => t.projectId != p.id);
     /* 计时中的任务随项目删除时，先收掉计时条，避免继续为不存在的任务计时/写工时 */
-    if (S.timer && !getTask(S.timer.taskId)) { S.timer = null; updateTimerBar(); }
+    if (S.timer && !getTask(S.timer.taskId)) {
+      S.timer = null;
+      updateTimerBar();
+      invoke('stop_timer').catch(() => {});
+    }
     S.frogs.ids = S.frogs.ids.filter(fid => getTask(fid));
     refreshTrashCount();
     const alive = S.projects.filter(x => !x.archived);

@@ -31,15 +31,19 @@ export async function exportBackup() {
   } catch (e) { toastErr('备份失败', e); }
 }
 
+let importing = false; /* 导入进行中防重：二次点击不并发跑全量替换 */
 export async function importBackup() {
-  let path = null;
+  if (importing) return;
+  importing = true;
   try {
-    path = await TDialog().open({
-      title: '导入备份',
-      multiple: false,
-      filters: [{ name: 'JSON', extensions: ['json'] }]
-    });
-  } catch (e) { toastErr('打开文件对话框失败', e); return; }
+    let path = null;
+    try {
+      path = await TDialog().open({
+        title: '导入备份',
+        multiple: false,
+        filters: [{ name: 'JSON', extensions: ['json'] }]
+      });
+    } catch (e) { toastErr('打开文件对话框失败', e); return; }
   if (!path) { toast('未选择文件；浏览器预览模式不支持导入', 'info'); return; }
   let d = null;
   try {
@@ -117,6 +121,13 @@ export async function importBackup() {
     /* 全量替换后清理运行态引用，避免计时条挂着已删除的任务、青蛙指向失效 id */
     await loadRules();
     await loadFrogs();
+    /* 重建每日笔记搜索索引：导入的笔记若不带索引，全局搜索会漏掉直到重启 */
+    try {
+      const rows = await invoke('list_meta_prefix', { prefix: 'dailyNote_' }) || [];
+      S.dnIndex = rows
+        .filter(r => r.key && r.key.indexOf('dailyNote_') === 0 && r.value)
+        .map(r => ({ date: r.key.slice('dailyNote_'.length), text: String(r.value).slice(0, 400) }));
+    } catch (e2) { S.dnIndex = []; }
     if (S.timer && !getTask(S.timer.taskId)) { S.timer = null; updateTimerBar(); }
     if (S.kbId != null && !getTask(S.kbId)) S.kbId = null;
     S.sel = [];
@@ -126,6 +137,7 @@ export async function importBackup() {
     render();
     toast('导入完成');
   } catch (e) { toastErr('导入失败', e); }
+  } finally { importing = false; }
 }
 
 export async function exportCsv() {

@@ -86,15 +86,20 @@ export function mtItemAdd() {
   $id('mt-item-input').focus();
 }
 export function mtItemRemove(i) { window._mtItems.splice(i, 1); renderMeetingItemEditor(); }
+let mtSaving = false; /* 防重：双击保存/转任务/记决策只执行一轮 */
 export async function saveMeetingModal() {
-  const title = $id('mt-title').value.trim();
-  if (!title) { toast('议题不能为空', 'err'); return; }
-  const m = {
-    id: +$id('mt-id').value || 0, date: $id('mt-date').value || TODAY, title: title,
-    attendees: $id('mt-attendees').value.trim(), conclusion: $id('mt-conclusion').value.trim(),
-    projectId: +$id('mt-proj').value || 0, itemsJson: JSON.stringify(window._mtItems || []), createdAt: ''
-  };
+  if (mtSaving) return;
+  mtSaving = true;
   try {
+    const title = $id('mt-title').value.trim();
+    if (!title) { toast('议题不能为空', 'err'); return; }
+    const orig = +$id('mt-id').value ? S.meetings.find(x => x.id == +$id('mt-id').value) : null;
+    const m = {
+      id: +$id('mt-id').value || 0, date: $id('mt-date').value || TODAY, title: title,
+      attendees: $id('mt-attendees').value.trim(), conclusion: $id('mt-conclusion').value.trim(),
+      projectId: +$id('mt-proj').value || 0, itemsJson: JSON.stringify(window._mtItems || []),
+      createdAt: orig ? (orig.createdAt || '') : ''
+    };
     const saved = await invoke('upsert_meeting', { m: m });
     const i = S.meetings.findIndex(x => x.id == saved.id);
     if (i >= 0) S.meetings[i] = saved; else S.meetings.unshift(saved);
@@ -102,6 +107,7 @@ export async function saveMeetingModal() {
     render();
     toast('会议纪要已保存');
   } catch (e) { toastErr('保存会议失败', e); }
+  finally { mtSaving = false; }
 }
 export async function deleteMeetingFlow() {
   const id = +$id('mt-id').value; if (!id) return;
@@ -116,11 +122,13 @@ export async function deleteMeetingFlow() {
 }
 /* 行动项 → 任务：溯源备注「来自 X 会议（日期）」 */
 export async function meetingItemToTask(meetingId, idx) {
-  const m = S.meetings.find(x => x.id == meetingId); if (!m) return;
-  const items = parseMeetingItems(m.itemsJson);
-  const it = items[idx]; if (!it) return;
-  const pid = m.projectId || (curProject() ? curProject().id : 0);
+  if (mtSaving) return;
+  mtSaving = true;
   try {
+    const m = S.meetings.find(x => x.id == meetingId); if (!m) return;
+    const items = parseMeetingItems(m.itemsJson);
+    const it = items[idx]; if (!it) return;
+    const pid = m.projectId || (curProject() ? curProject().id : 0);
     const saved = await persistTask({
       id: 0, projectId: pid, title: it.text, due: TODAY, owner: '我方', pri: 'P1',
       status: 'todo', doneAt: '', risk: false, repeat: '',
@@ -134,13 +142,16 @@ export async function meetingItemToTask(meetingId, idx) {
     render();
     toast('已转任务：「' + it.text.slice(0, 20) + '」（备注可溯源到会议）');
   } catch (e) { toastErr('转任务失败', e); }
+  finally { mtSaving = false; }
 }
 /* 行动项 → 决策日志：预填背景=会议结论，日期=会议日期 */
 export async function meetingItemToDecision(meetingId, idx) {
-  const m = S.meetings.find(x => x.id == meetingId); if (!m) return;
-  const items = parseMeetingItems(m.itemsJson);
-  const it = items[idx]; if (!it) return;
+  if (mtSaving) return;
+  mtSaving = true;
   try {
+    const m = S.meetings.find(x => x.id == meetingId); if (!m) return;
+    const items = parseMeetingItems(m.itemsJson);
+    const it = items[idx]; if (!it) return;
     const d = {
       id: 0, projectId: m.projectId || (curProject() ? curProject().id : 0), title: it.text,
       background: '来自会议「' + m.title + '」（' + m.date + '）' + (m.conclusion ? '\n结论：' + m.conclusion : ''),
@@ -157,6 +168,7 @@ export async function meetingItemToDecision(meetingId, idx) {
     render();
     toast('已记入决策日志：' + it.text.slice(0, 24));
   } catch (e) { toastErr('记为决策失败', e); }
+  finally { mtSaving = false; }
 }
 
 /* ============ 包3 #11：干系人跟进（FollowUpThen 机制） ============ */

@@ -8,7 +8,11 @@ import { persistTask } from '../tasks.js';
 import { $id, esc, toast, toastErr } from '../utils.js';
 
 export let editingIdeaId = 0;
-export function ideaScore(i2) { return Math.round((i2.value / i2.effort) * 100) / 100; }
+export function ideaScore(i2) {
+  const v = Math.max(0, +i2.value || 0);
+  const e = Math.max(1, +i2.effort || 1);
+  return Math.round((v / e) * 100) / 100;
+}
 export function renderIdeas() {
   const box = $id('viewIdeas');
   const list = S.ideas.slice().sort((a, b) => (a.converted - b.converted) || (ideaScore(b) - ideaScore(a)));
@@ -58,19 +62,23 @@ export function renderIdeas() {
     }
   }
 }
+let ideaSaving = false; /* 防重：双击「记一条 / 保存修改」只写入一条想法 */
 export async function saveIdea() {
-  const title = $id('idea-title').value.trim();
-  if (!title) { toast('先写内容', 'err'); return; }
-  const it = editingIdeaId
-    ? Object.assign({}, S.ideas.find(x => x.id === editingIdeaId), { title: title, value: +$id('idea-v').value, effort: +$id('idea-e').value })
-    : { id: 0, title: title, note: '', value: +$id('idea-v').value, effort: +$id('idea-e').value, converted: 0, createdAt: TODAY };
+  if (ideaSaving) return;
+  ideaSaving = true;
   try {
+    const title = $id('idea-title').value.trim();
+    if (!title) { toast('先写内容', 'err'); return; }
+    const it = editingIdeaId
+      ? Object.assign({}, S.ideas.find(x => x.id === editingIdeaId), { title: title, value: +$id('idea-v').value, effort: +$id('idea-e').value })
+      : { id: 0, title: title, note: '', value: +$id('idea-v').value, effort: +$id('idea-e').value, converted: 0, createdAt: TODAY };
     const saved = await invoke('upsert_idea', { idea: it });
     const i2 = S.ideas.findIndex(x => x.id === saved.id);
     if (i2 >= 0) S.ideas[i2] = saved; else S.ideas.push(saved);
     editingIdeaId = 0;
     render();
   } catch (e) { toastErr('保存失败', e); }
+  finally { ideaSaving = false; }
 }
 export function editIdea(id) {
   const i2 = S.ideas.find(x => x.id === id); if (!i2) return;
@@ -101,8 +109,11 @@ export function openConvertIdea(id) {
   $id('cv-due').value = TODAY;
   openModal('mw-convert');
 }
+let cvBusy = false; /* 防重：双击「转为任务」只生成一条 */
 export async function convertIdeaNow() {
+  if (cvBusy) return;
   const i2 = S.ideas.find(x => x.id === +$id('cv-idea-id').value); if (!i2) return;
+  cvBusy = true;
   try {
     await persistTask({
       id: 0, projectId: +$id('cv-proj').value, title: i2.title, due: $id('cv-due').value || TODAY,
@@ -118,6 +129,7 @@ export async function convertIdeaNow() {
     render();
     toast('需求已转为任务，需求池里标记完成');
   } catch (e) { toastErr('转换失败', e); }
+  finally { cvBusy = false; }
 }
 
 /* ============ 包3 #9：项目决策日志（ADR 模板） ============ */

@@ -51,21 +51,24 @@ export function openDecisionModal(id) {
   openModal('mw-decision');
   setTimeout(() => $id('d-title').focus(), 30);
 }
+let dSaving = false; /* 防重：双击「保存决策」只写入一条 */
 export async function saveDecisionModal() {
-  const title = $id('d-title').value.trim();
-  if (!title) { toast('决策标题不能为空', 'err'); return; }
-  const p = curProject(); if (!p) return;
-  const orig = +$id('d-id').value ? S.decisions.find(x => x.id == +$id('d-id').value) : null;
-  const d = {
-    id: +$id('d-id').value || 0, projectId: p.id, title: title,
-    background: $id('d-background').value.trim(), options: $id('d-options').value.trim(),
-    decision: $id('d-decision').value.trim(), reason: $id('d-reason').value.trim(),
-    date: $id('d-date').value || TODAY, status: $id('d-status').value,
-    taskId: +$id('d-task').value || 0,
-    meetingId: orig ? (orig.meetingId || 0) : 0, /* 编辑时保留原会议溯源，不能写死 0 */
-    createdAt: ''
-  };
+  if (dSaving) return;
+  dSaving = true;
   try {
+    const title = $id('d-title').value.trim();
+    if (!title) { toast('决策标题不能为空', 'err'); return; }
+    const p = curProject(); if (!p) return;
+    const orig = +$id('d-id').value ? S.decisions.find(x => x.id == +$id('d-id').value) : null;
+    const d = {
+      id: +$id('d-id').value || 0, projectId: p.id, title: title,
+      background: $id('d-background').value.trim(), options: $id('d-options').value.trim(),
+      decision: $id('d-decision').value.trim(), reason: $id('d-reason').value.trim(),
+      date: $id('d-date').value || TODAY, status: $id('d-status').value,
+      taskId: +$id('d-task').value || 0,
+      meetingId: orig ? (orig.meetingId || 0) : 0, /* 编辑时保留原会议溯源，不能写死 0 */
+      createdAt: orig ? (orig.createdAt || '') : ''
+    };
     const saved = await invoke('upsert_decision', { d: d });
     const i = S.decisions.findIndex(x => x.id == saved.id);
     if (i >= 0) S.decisions[i] = saved; else S.decisions.unshift(saved);
@@ -73,6 +76,7 @@ export async function saveDecisionModal() {
     render();
     toast('决策已记录：' + title.slice(0, 24));
   } catch (e) { toastErr('保存决策失败', e); }
+  finally { dSaving = false; }
 }
 export async function deleteDecisionFlow() {
   const id = +$id('d-id').value; if (!id) return;

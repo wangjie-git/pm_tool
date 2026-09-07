@@ -48,7 +48,7 @@ Tauri v2 桌面应用（PM 待办助手）。前端 `ui/` 为**纯 ES Modules，
 
 1. **跨模块可变状态只能通过 setter 写**。ES 导入绑定只读：`let` 声明所属模块之外直接赋值会抛 `Assignment to constant variable`。已有 setter：`setToday`（state.js）、`aiSetSelection`/`aiResetProfiles`（ai.js）、`saveProjectAsTemplateOf`（modals/project.js）。新增跨模块可写状态时照此模式。
 2. **模板字符串/HTML 里的内联 `onclick="fn(...)"` 走全局作用域**：`fn` 必须已 export 且在 `compat.js` 挂到 window。新加此类函数时同步更新 compat.js。
-3. **改完代码跑检查**：`node tools/check_ids.js`（$id 引用的 id 存在性 + onclick 函数定义）。该脚本扫描 `ui/js/**/*.js` 全量拼接，改结构无需改它。后端命令接线核对：`node tools/check_commands.js`（前端 invoke 命令名 vs 后端 `#[tauri::command]` fn 名交叉比对，改命令时同步跑）。
+3. **改完代码跑检查**：`node tools/check_ids.js`（$id 引用的 id 存在性 + onclick 函数定义）。该脚本扫描 `ui/js/**/*.js` 全量拼接，改结构无需改它。后端命令接线核对：`node tools/check_commands.js`（前端 invoke 命令名 vs 后端 `#[tauri::command]` fn 名交叉比对，改命令时同步跑）。**ESM 语法检查**：`node tools/check_syntax.js`（把模块当 ES Module 逐个 `--check`；注意 `node --check file.js` 按 CommonJS 解析会漏报——历史教训：`views/contacts.js` 曾在对象字面量里混入 `const fv = ...` 导致整个模块图加载失败、应用白屏，静态检查全绿但启动即崩）。**改交互代码后跑冒烟**：`node tools/smoke-ui.js`（模块图加载 + init() 全流程）与 `node tools/smoke-ui2.js`（逐个调用各视图渲染器与动作函数，共 50 项）。
 4. **浏览器预览**用 `node tools/serve-ui.js`（含 no-store 缓存头 + 错误陷阱注入）；ES Modules 不能 `file://` 直开。Tauri 内（`cargo tauri dev`）正常。
 5. 静态资源由 Tauri `frontendDist: ../ui` 直接服务，**不要引入打包器**；保持纯 ES Modules。
 

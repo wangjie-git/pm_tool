@@ -116,6 +116,83 @@ pub fn ensure_column(conn: &Connection, table: &str, column: &str, ddl: &str) {
     }
 }
 
+pub fn init_db(conn: &Connection) -> Result<(), rusqlite::Error> {
+    conn.execute_batch(MIGRATE)?;
+    ensure_column(
+        conn,
+        "tasks",
+        "checklist_json",
+        "ALTER TABLE tasks ADD COLUMN checklist_json TEXT NOT NULL DEFAULT '[]'",
+    );
+    ensure_column(
+        conn,
+        "tasks",
+        "updated_at",
+        "ALTER TABLE tasks ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''",
+    );
+    ensure_column(
+        conn,
+        "tasks",
+        "defer_count",
+        "ALTER TABLE tasks ADD COLUMN defer_count INTEGER NOT NULL DEFAULT 0",
+    );
+    ensure_column(
+        conn,
+        "tasks",
+        "risk_prob",
+        "ALTER TABLE tasks ADD COLUMN risk_prob INTEGER NOT NULL DEFAULT 0",
+    );
+    ensure_column(
+        conn,
+        "tasks",
+        "risk_impact",
+        "ALTER TABLE tasks ADD COLUMN risk_impact INTEGER NOT NULL DEFAULT 0",
+    );
+    ensure_column(
+        conn,
+        "tasks",
+        "risk_mitigate",
+        "ALTER TABLE tasks ADD COLUMN risk_mitigate TEXT NOT NULL DEFAULT ''",
+    );
+    ensure_column(
+        conn,
+        "tasks",
+        "risk_escalate",
+        "ALTER TABLE tasks ADD COLUMN risk_escalate TEXT NOT NULL DEFAULT ''",
+    );
+    ensure_column(
+        conn,
+        "tasks",
+        "doing_since",
+        "ALTER TABLE tasks ADD COLUMN doing_since TEXT NOT NULL DEFAULT ''",
+    );
+    ensure_column(
+        conn,
+        "tasks",
+        "parent_id",
+        "ALTER TABLE tasks ADD COLUMN parent_id INTEGER NOT NULL DEFAULT 0",
+    );
+    ensure_column(
+        conn,
+        "tasks",
+        "start_date",
+        "ALTER TABLE tasks ADD COLUMN start_date TEXT NOT NULL DEFAULT ''",
+    );
+    ensure_column(
+        conn,
+        "tasks",
+        "is_milestone",
+        "ALTER TABLE tasks ADD COLUMN is_milestone INTEGER NOT NULL DEFAULT 0",
+    );
+    ensure_column(
+        conn,
+        "tasks",
+        "remind_at",
+        "ALTER TABLE tasks ADD COLUMN remind_at TEXT NOT NULL DEFAULT ''",
+    );
+    Ok(())
+}
+
 pub fn seed_if_empty(conn: &Connection) {
     let n: i64 = conn
         .query_row("SELECT COUNT(*) FROM projects", [], |r| r.get(0))
@@ -403,9 +480,7 @@ pub fn load_app(db: State<Db>) -> Result<AppData, String> {
     read_all(&conn).map_err(es)
 }
 
-#[tauri::command(async)]
-pub fn import_data(db: State<Db>, data: AppData) -> Result<(), String> {
-    let mut conn = db.0.lock().map_err(|e| e.to_string())?;
+pub fn import_data_conn(conn: &mut Connection, data: &AppData) -> Result<(), String> {
     let tx = conn.transaction().map_err(es)?;
     tx.execute("DELETE FROM tasks", []).map_err(es)?;
     tx.execute("DELETE FROM projects", []).map_err(es)?;
@@ -441,8 +516,10 @@ pub fn import_data(db: State<Db>, data: AppData) -> Result<(), String> {
         .map_err(es)?;
     }
     /* 全量替换语义：time_logs 无条件清空（旧备份/手改 JSON 缺 timeLogs 时不能残留旧工时）；
-     * deleted_items 不随备份导出，同样清空，避免旧回收站恢复后在新数据里制造重复任务 */
+     * deleted_items 不随备份导出，同样清空，避免旧回收站恢复后在新数据里制造重复任务；
+     * 计时器关联旧数据，全量导入时清除旧计时状态防僵尸计时 */
     tx.execute("DELETE FROM time_logs", []).map_err(es)?;
+    tx.execute("DELETE FROM meta WHERE key IN ('timerTaskId', 'timerStart')", []).map_err(es)?;
     for l in &data.time_logs {
         let lid = if l.id > 0 { Some(l.id) } else { None };
         tx.execute(
@@ -482,6 +559,38 @@ pub fn import_data(db: State<Db>, data: AppData) -> Result<(), String> {
     }
     tx.commit().map_err(es)?;
     Ok(())
+}
+
+#[tauri::command(async)]
+pub fn import_data(db: State<Db>, data: AppData) -> Result<(), String> {
+    let mut conn = db.0.lock().map_err(|e| e.to_string())?;
+    import_data_conn(&mut conn, &data)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn import_data_clears_timer_meta() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        init_db(&conn).unwrap();
+        conn.execute("INSERT INTO meta (key, value) VALUES ('timerTaskId', '101'), ('timerStart', '123456')", []).unwrap();
+
+        let data = AppData {
+            projects: vec![],
+            tasks: vec![],
+            ideas: vec![],
+            time_logs: vec![],
+            decisions: vec![],
+            meetings: vec![],
+            contacts: vec![],
+        };
+        import_data_conn(&mut conn, &data).unwrap();
+
+        let count: i64 = conn.query_row("SELECT COUNT(*) FROM meta WHERE key IN ('timerTaskId', 'timerStart')", [], |r| r.get(0)).unwrap();
+        assert_eq!(count, 0);
+    }
 }
 
 

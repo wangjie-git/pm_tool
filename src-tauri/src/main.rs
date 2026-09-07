@@ -19,7 +19,7 @@ use std::{fs, sync::Mutex};
 use tauri::Manager;
 
 use crate::{
-    db::{ensure_column, seed_if_empty, MIGRATE},
+    db::{init_db, seed_if_empty},
     import_export::{backup_serialize, persist_backup},
     state::{Db, WinSaveGuard},
     system::{
@@ -61,79 +61,7 @@ fn main() {
             let backups = dir.join("backups");
             let _ = fs::create_dir_all(&backups);
             let conn = Connection::open(dir.join("pm.db"))?;
-            conn.execute_batch(MIGRATE)?;
-            ensure_column(
-                &conn,
-                "tasks",
-                "checklist_json",
-                "ALTER TABLE tasks ADD COLUMN checklist_json TEXT NOT NULL DEFAULT '[]'",
-            );
-            ensure_column(
-                &conn,
-                "tasks",
-                "updated_at",
-                "ALTER TABLE tasks ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''",
-            );
-            ensure_column(
-                &conn,
-                "tasks",
-                "defer_count",
-                "ALTER TABLE tasks ADD COLUMN defer_count INTEGER NOT NULL DEFAULT 0",
-            );
-            ensure_column(
-                &conn,
-                "tasks",
-                "risk_prob",
-                "ALTER TABLE tasks ADD COLUMN risk_prob INTEGER NOT NULL DEFAULT 0",
-            );
-            ensure_column(
-                &conn,
-                "tasks",
-                "risk_impact",
-                "ALTER TABLE tasks ADD COLUMN risk_impact INTEGER NOT NULL DEFAULT 0",
-            );
-            ensure_column(
-                &conn,
-                "tasks",
-                "risk_mitigate",
-                "ALTER TABLE tasks ADD COLUMN risk_mitigate TEXT NOT NULL DEFAULT ''",
-            );
-            ensure_column(
-                &conn,
-                "tasks",
-                "risk_escalate",
-                "ALTER TABLE tasks ADD COLUMN risk_escalate TEXT NOT NULL DEFAULT ''",
-            );
-            ensure_column(
-                &conn,
-                "tasks",
-                "doing_since",
-                "ALTER TABLE tasks ADD COLUMN doing_since TEXT NOT NULL DEFAULT ''",
-            );
-            ensure_column(
-                &conn,
-                "tasks",
-                "parent_id",
-                "ALTER TABLE tasks ADD COLUMN parent_id INTEGER NOT NULL DEFAULT 0",
-            );
-            ensure_column(
-                &conn,
-                "tasks",
-                "start_date",
-                "ALTER TABLE tasks ADD COLUMN start_date TEXT NOT NULL DEFAULT ''",
-            );
-            ensure_column(
-                &conn,
-                "tasks",
-                "is_milestone",
-                "ALTER TABLE tasks ADD COLUMN is_milestone INTEGER NOT NULL DEFAULT 0",
-            );
-            ensure_column(
-                &conn,
-                "tasks",
-                "remind_at",
-                "ALTER TABLE tasks ADD COLUMN remind_at TEXT NOT NULL DEFAULT ''",
-            );
+            init_db(&conn)?;
             seed_if_empty(&conn);
             // 每日提醒默认 09:30，已有设置则不动（可随时在界面改为「关闭」）
             let _ = conn.execute(

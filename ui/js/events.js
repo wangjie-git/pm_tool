@@ -231,6 +231,8 @@ export function bindEvents() {
   $id('fc-finish').onclick = focusFinish;
   $id('fc-minimize').onclick = closeFocusOverlay;
   $id('fc-save-note').onclick = saveFocusNote;
+  const fcNote = $id('fc-note');
+  if (fcNote) fcNote.addEventListener('keydown', e => { if (e.isComposing || e.keyCode === 229) return; if (e.key === 'Enter') { e.preventDefault(); saveFocusNote(); } });
   /* 收尾问答：阻碍一键转风险任务 */
   $id('sd-block2task').onclick = shutdownBlockToTask;
   /* 设置：热键试一下 */
@@ -277,9 +279,13 @@ export function bindEvents() {
   const tbFocus = document.querySelector('#timerBar .btn.blue.ghost');
   if (tbFocus) tbFocus.onclick = openFocusOverlay;
 
-  ['mw-task', 'mw-proj', 'mw-report', 'mw-confirm', 'mw-prompt', 'mw-palette', 'mw-newproj', 'mw-trash', 'mw-shutdown', 'mw-settings', 'mw-smart', 'mw-convert', 'mw-aitask', 'mw-decision', 'mw-meeting', 'mw-contact', 'mw-xlsx', 'mw-focus', 'mw-tour'].forEach(wid => {
-    $id(wid).addEventListener('mousedown', e => {
-      if (e.target === $id(wid)) {
+  const ALL_MODALS = ['mw-task', 'mw-proj', 'mw-report', 'mw-confirm', 'mw-prompt', 'mw-palette', 'mw-newproj', 'mw-trash', 'mw-shutdown', 'mw-settings', 'mw-smart', 'mw-convert', 'mw-aitask', 'mw-decision', 'mw-meeting', 'mw-contact', 'mw-xlsx', 'mw-focus', 'mw-tour'];
+
+  ALL_MODALS.forEach(wid => {
+    const el = $id(wid);
+    if (!el) return;
+    el.addEventListener('mousedown', e => {
+      if (e.target === el) {
         if (wid === 'mw-confirm') answerConfirm(false);
         else if (wid === 'mw-prompt') answerPrompt(null);
         else if (wid === 'mw-shutdown') skipShutdown();
@@ -316,12 +322,20 @@ export function bindEvents() {
     const typing = tag === 'input' || tag === 'textarea' || tag === 'select';
     const code = e.code;
     if (code === 'Escape') {
+      /* 全局搜索页：Esc 退出回项目视图（与「清空搜索框自动退出」一致） */
+      if (S.mode === 'search') { S.search = ''; const se2 = $id('search'); if (se2) se2.value = ''; S.mode = 'project'; render(); return; }
       if (qPopKind) { hideQPop(); return; }
-      if (!$id('projMenu').hidden) { $id('projMenu').hidden = true; return; }
+      if ($id('projMenu') && !$id('projMenu').hidden) { $id('projMenu').hidden = true; return; }
       if (document.querySelector('.card-menu:not([hidden])')) { closeCardMenus(); return; }
       if (document.getElementById('ctxMenu') && !document.getElementById('ctxMenu').hidden) { closeCtxMenu(); return; }
       if (document.querySelector('.cal-day-pop')) { const p2 = document.querySelector('.cal-day-pop'); p2.remove(); return; }
-      const open = ['mw-prompt', 'mw-confirm', 'mw-palette', 'mw-task', 'mw-proj', 'mw-report', 'mw-newproj', 'mw-trash', 'mw-shutdown', 'mw-settings', 'mw-smart', 'mw-convert', 'mw-aitask', 'mw-decision', 'mw-meeting', 'mw-contact', 'mw-xlsx', 'mw-focus', 'mw-tour'].find(w => !$id(w).hidden);
+      /* 查找当前最顶层可见弹窗（按 z-index 降序，后打开的在上层，优先关闭） */
+      const openModals = ALL_MODALS
+        .map(w => $id(w))
+        .filter(el => el && !el.hidden)
+        .sort((a, b) => (+b.style.zIndex || 0) - (+a.style.zIndex || 0));
+      const openEl = openModals[0];
+      const open = openEl ? openEl.id : null;
       if (open === 'mw-prompt') answerPrompt(null);
       else if (open === 'mw-confirm') answerConfirm(false);
       else if (open === 'mw-shutdown') skipShutdown();
@@ -333,24 +347,45 @@ export function bindEvents() {
     /* Ctrl+K：命令面板（输入焦点不在输入框时也生效） */
     if ((e.ctrlKey || e.metaKey) && code === 'KeyK') {
       e.preventDefault();
-      if ($id('mw-palette').hidden) openPalette(); else closeModal('mw-palette');
+      if ($id('mw-palette') && $id('mw-palette').hidden) {
+        /* 其他弹窗打开时不开命令面板：选中任务会静默覆盖任务编辑弹窗里未保存的字段 */
+        const otherOpen = ALL_MODALS.filter(w => w !== 'mw-palette').some(w => {
+          const el = $id(w);
+          return el && !el.hidden;
+        });
+        if (otherOpen) return;
+        openPalette();
+      } else if ($id('mw-palette')) closeModal('mw-palette');
       return;
     }
     if ((e.ctrlKey || e.metaKey) && code === 'KeyF') {
-      e.preventDefault(); $id('search').focus(); $id('search').select();
+      e.preventDefault();
+      const se = $id('search');
+      if (se) { se.focus(); se.select(); }
       return;
     }
     if (typing) return;
     /* 有弹窗打开时不响应行导航/快捷键 */
-    const modalOpen = ['mw-task', 'mw-proj', 'mw-report', 'mw-confirm', 'mw-prompt', 'mw-palette', 'mw-newproj', 'mw-trash', 'mw-shutdown', 'mw-settings', 'mw-smart', 'mw-convert', 'mw-aitask', 'mw-decision', 'mw-meeting', 'mw-contact', 'mw-xlsx', 'mw-focus', 'mw-tour'].some(w => !$id(w).hidden);
+    const modalOpen = ALL_MODALS.some(w => {
+      const el = $id(w);
+      return el && !el.hidden;
+    });
     if (modalOpen) return;
+    /* 点击按钮后焦点会留在按钮上：此时 Space/Enter 必须交给原生行为（激活按钮/折叠标题），
+     * 否则键盘用户按空格想再点一次按钮，实际却触发了「完成/打开任务」 */
+    if ((tag === 'button' || tag === 'summary') && (code === 'Space' || code === 'Enter')) return;
     /* 键盘行导航（动线2）：↑↓ / J K 移行，空格完成，X 选中，Enter 详情 */
     if (code === 'KeyJ' || code === 'ArrowDown') { e.preventDefault(); kbMove(1); return; }
     if (code === 'KeyK' || code === 'ArrowUp') { e.preventDefault(); kbMove(-1); return; }
     if (code === 'Space') { e.preventDefault(); kbToggleDone(); return; }
     if (code === 'KeyX') { if (S.kbId != null) { e.preventDefault(); toggleTaskSel(S.kbId); } return; }
     if (code === 'Enter') { if (S.kbId != null) { e.preventDefault(); openTaskEdit(S.kbId); } return; }
-    if (code === 'Slash') { e.preventDefault(); $id('search').focus(); $id('search').select(); return; }
+    if (code === 'Slash') {
+      e.preventDefault();
+      const se = $id('search');
+      if (se) { se.focus(); se.select(); }
+      return;
+    }
     if (code === 'KeyN') { e.preventDefault(); openTaskEdit(0); return; }
     /* 1-7 切视图：Digit 系列，键盘布局无关 */
     if (code.indexOf('Digit') === 0) {

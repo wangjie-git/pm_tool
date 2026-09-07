@@ -16,9 +16,14 @@ export async function openNewProject() {
   openModal('mw-newproj');
   setTimeout(() => { $id('np-name').focus(); }, 30);
 }
+let creating = false; /* 防重：回车 + 点击 / 双击只创建一个项目，模板任务也只复制一轮 */
 export async function createProjectFromModal() {
+  if (creating) return;
   const name = $id('np-name').value.trim();
   if (!name) { toast('项目名称不能为空', 'err'); return; }
+  creating = true;
+  const btn = $id('np-create');
+  if (btn) btn.disabled = true;
   try {
     const tplId = +$id('np-tpl').value || 0;
     const tpls = await getJsonMeta('templates', []);
@@ -45,6 +50,10 @@ export async function createProjectFromModal() {
     render();
     toast('项目「' + p.name + '」已创建' + (n ? '，已从模板带入 ' + n + ' 条任务（截止日默认今天，可自行调整）' : ''));
   } catch (e) { toastErr('创建项目失败', e); }
+  finally {
+    creating = false;
+    if (btn) btn.disabled = false;
+  }
 }
 export async function deleteTemplateFromModal() {
   const tplId = +$id('np-tpl').value || 0;

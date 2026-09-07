@@ -57,7 +57,7 @@ export function parseQuick(raw) {
 export function nextWeekday(cn, nextWeek) {
   const map = { '一': 1, '二': 2, '三': 3, '四': 4, '五': 5, '六': 6, '日': 7, '天': 7 };
   const target = map[cn] || 1;
-  const curDow = new Date().getDay() || 7;
+  const curDow = new Date(TODAY + 'T12:00:00').getDay() || 7;
   let delta;
   if (nextWeek) delta = (8 - curDow) + (target - 1);
   else {
@@ -183,7 +183,7 @@ export function qTogglePop(kind, btn) {
 }
 /* 语法面板的令牌点击助手（挂 window 供内联 onclick 使用） */
 export function qPick(token) { qInsert(token); hideQPop(); }
-export function qPickOwner(o) { qRemoveToken(/@[^\s!#@]+/g); qInsert('@' + o); hideQPop(); }
+export function qPickOwner(o) { qRemoveToken(/@[^\s!@]+/g); qInsert('@' + o); hideQPop(); }
 export function qPickPri(p) { qRemoveToken(/\s*!P\d/gi); qInsert('!' + p); hideQPop(); }
 
 /* ============ 搜索与筛选令牌 ============ */

@@ -114,9 +114,11 @@ export async function palPick(i) {
     else if (it.id === 'settings') openSettings();
   } else if (it.kind === 'decision') {
     const d = S.decisions.find(x => x.id == it.id);
-    if (d && d.projectId) await switchProject(d.projectId);
+    if (!d) return;
+    if (d.projectId) await switchProject(d.projectId);
     S.mode = 'project'; S.view = 'decisions';
     render();
+    openDecisionModal(d.id); /* 与全局搜索结果一致：直达该条决策，而不是只切视图 */
   } else if (it.kind === 'meeting') {
     S.mode = 'meetings';
     render();

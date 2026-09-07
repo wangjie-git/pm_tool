@@ -108,10 +108,15 @@ export function renderSearch() {
 export async function searchOpenTask(id) {
   const t = getTask(id);
   if (!t) return;
-  S.cur = '' + t.projectId;
-  S.mode = 'project';
   exitSearch();
-  await switchProject(t.projectId);
+  if (t.projectId) {
+    S.cur = '' + t.projectId;
+    S.mode = 'project';
+    await switchProject(t.projectId);
+  } else {
+    S.mode = 'inbox';
+    render();
+  }
   openTaskEdit(t.id);
 }
 export async function searchOpenDecision(id) {

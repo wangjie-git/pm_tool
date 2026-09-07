@@ -62,7 +62,9 @@ export function makeMockBackend() {
           db.trash.push({ id: tid2, kind: 'task', payload: clone(t), summary: t.title, deletedAt: nowMinStr() });
           if (tid === args.id) trashId = tid2;
         });
-        db.tasks = db.tasks.filter(x => !all.includes(x.id)); persist(); return trashId;
+        db.tasks = db.tasks.filter(x => !all.includes(x.id));
+        if (all.includes(+db.meta.timerTaskId)) { delete db.meta.timerTaskId; delete db.meta.timerStart; }
+        persist(); return trashId;
       }
       case 'upsert_project': {
         const p = clone(args.project);
@@ -83,7 +85,9 @@ export function makeMockBackend() {
         const trashId = db.trashNext++;
         db.trash.push({ id: trashId, kind: 'project', payload: { project: clone(p), tasks: clone(pts) }, summary: p.name + '（含 ' + pts.length + ' 条事项）', deletedAt: nowMinStr() });
         db.projects = db.projects.filter(x => x.id !== args.id);
-        db.tasks = db.tasks.filter(x => x.projectId !== args.id); persist(); return trashId;
+        db.tasks = db.tasks.filter(x => x.projectId !== args.id);
+        if (pts.some(x => x.id === +db.meta.timerTaskId)) { delete db.meta.timerTaskId; delete db.meta.timerStart; }
+        persist(); return trashId;
       }
       case 'list_deleted':
         return clone(db.trash).sort((a, b) => b.id - a.id);
@@ -161,7 +165,9 @@ export function makeMockBackend() {
         db.ideas = db.ideas.filter(x => x.id !== args.id); persist(); return null;
       case 'import_data':
         db.projects = clone(args.data.projects); db.tasks = clone(args.data.tasks);
-        db.ideas = clone(args.data.ideas || []); persist(); return null;
+        db.ideas = clone(args.data.ideas || []);
+        delete db.meta.timerTaskId; delete db.meta.timerStart;
+        persist(); return null;
       case 'list_decisions':
         return clone(args.projectId ? db.decisions.filter(d => d.projectId == args.projectId) : db.decisions);
       case 'upsert_decision': {
@@ -170,7 +176,10 @@ export function makeMockBackend() {
         if (!d.date) d.date = T;
         if (d.id > 0) {
           const i = db.decisions.findIndex(x => x.id === d.id);
-          if (i >= 0) db.decisions[i] = d;
+          if (i >= 0) {
+            if (!d.createdAt && db.decisions[i].createdAt) d.createdAt = db.decisions[i].createdAt;
+            db.decisions[i] = d;
+          }
         } else {
           d.id = db.nextId++;
           if (!d.createdAt) d.createdAt = nowMinStr();
@@ -188,7 +197,10 @@ export function makeMockBackend() {
         if (!m.date) m.date = T;
         if (m.id > 0) {
           const i = db.meetings.findIndex(x => x.id === m.id);
-          if (i >= 0) db.meetings[i] = m;
+          if (i >= 0) {
+            if (!m.createdAt && db.meetings[i].createdAt) m.createdAt = db.meetings[i].createdAt;
+            db.meetings[i] = m;
+          }
         } else {
           m.id = db.nextId++;
           if (!m.createdAt) m.createdAt = nowMinStr();
@@ -205,7 +217,10 @@ export function makeMockBackend() {
         c.followupDays = Math.max(1, Math.min(365, +c.followupDays || 14));
         if (c.id > 0) {
           const i = db.contacts.findIndex(x => x.id === c.id);
-          if (i >= 0) db.contacts[i] = c;
+          if (i >= 0) {
+            if (!c.createdAt && db.contacts[i].createdAt) c.createdAt = db.contacts[i].createdAt;
+            db.contacts[i] = c;
+          }
         } else {
           c.id = db.nextId++;
           if (!c.createdAt) c.createdAt = T;

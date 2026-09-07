@@ -64,17 +64,22 @@ export function openContactModal(id) {
   openModal('mw-contact');
   setTimeout(() => $id('ct-name').focus(), 30);
 }
+let ctSaving = false; /* 防重：双击「保存干系人」只建档一次 */
 export async function saveContactModal() {
-  const name = $id('ct-name').value.trim();
-  if (!name) { toast('姓名不能为空', 'err'); return; }
-  const c = {
-    id: +$id('ct-id').value || 0, name: name, org: $id('ct-org').value.trim(),
-    tags: $id('ct-tags').value.trim(), projects: $id('ct-projects').value.trim(),
-    note: $id('ct-note').value.trim(), lastContact: $id('ct-last').value || TODAY,
-    const fv = +$id('ct-days').value; /* 0/空/NaN 归一：0→1（后端钳制为每天），非法→14 */
-  followupDays: Math.min(365, Math.max(1, Number.isFinite(fv) ? Math.round(fv) : 14)), createdAt: ''
-  };
+  if (ctSaving) return;
+  ctSaving = true;
   try {
+    const name = $id('ct-name').value.trim();
+    if (!name) { toast('姓名不能为空', 'err'); return; }
+    const fv = +$id('ct-days').value; /* 0/空/NaN 归一：0→1（后端钳制为每天），非法→14 */
+    const orig = +$id('ct-id').value ? S.contacts.find(x => x.id == +$id('ct-id').value) : null;
+    const c = {
+      id: +$id('ct-id').value || 0, name: name, org: $id('ct-org').value.trim(),
+      tags: $id('ct-tags').value.trim(), projects: $id('ct-projects').value.trim(),
+      note: $id('ct-note').value.trim(), lastContact: $id('ct-last').value || TODAY,
+      followupDays: Math.min(365, Math.max(1, Number.isFinite(fv) ? Math.round(fv) : 14)),
+      createdAt: orig ? (orig.createdAt || '') : ''
+    };
     const saved = await invoke('upsert_contact', { c: c });
     const i = S.contacts.findIndex(x => x.id == saved.id);
     if (i >= 0) S.contacts[i] = saved; else S.contacts.push(saved);
@@ -83,6 +88,7 @@ export async function saveContactModal() {
     await generateFollowupTasks();
     toast('干系人已保存：' + name);
   } catch (e) { toastErr('保存失败', e); }
+  finally { ctSaving = false; }
 }
 export async function deleteContactFlow(id) {
   const c = S.contacts.find(x => x.id == id); if (!c) return;

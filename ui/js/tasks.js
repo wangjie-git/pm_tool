@@ -146,7 +146,11 @@ export async function delTaskById(id, allowUndo) {
   const descIds = allDescendantIds(id); /* 后端会级联删除子孙任务，本地状态同步移除 */
   try {
     const trashId = await invoke('delete_task', { id: id });
-    if (S.timer && (S.timer.taskId == id || descIds.indexOf(S.timer.taskId) >= 0)) { S.timer = null; updateTimerBar(); }
+    if (S.timer && (S.timer.taskId == id || descIds.indexOf(S.timer.taskId) >= 0)) {
+      S.timer = null;
+      updateTimerBar();
+      invoke('stop_timer').catch(() => {});
+    }
     S.tasks = S.tasks.filter(x => x.id != id && descIds.indexOf(x.id) < 0);
     S.frogs.ids = S.frogs.ids.filter(x => x != id && descIds.indexOf(x) < 0);
     refreshTrashCount();
@@ -322,16 +326,28 @@ export async function batchSnoozeSel() {
   clearSelQuiet(); render();
   toast('已把 ' + ids.length + ' 项推到明天');
 }
+/* 换项目时子树跟随（动线2 补充）：把 ids 及其全部子孙一起改到 newPid。
+ * 父任务不在搬家名单内（留在原项目）的子任务自动脱离，避免跨项目悬空父子链
+ * （否则进度上卷/时间线树/父任务选项会错乱）。 */
+export async function applyProjectMove(ids, newPid) {
+  const moving = new Set(ids);
+  ids.forEach(id => allDescendantIds(id).forEach(d => moving.add(d)));
+  for (const mid of moving) { const t = getTask(mid); if (t) t.projectId = newPid; }
+  for (const mid of moving) {
+    const t = getTask(mid); if (!t) continue;
+    const parent = t.parentId ? getTask(t.parentId) : null;
+    if (parent && !moving.has(parent.id)) t.parentId = 0; /* 父任务没跟着走：脱离 */
+    await persistTask(t);
+  }
+}
 export async function batchMoveSel() {
   const sel = $id('bbProj');
   if (!sel || !sel.value) { toast('请选择目标项目', 'err'); return; }
   const pid = +sel.value;
   const ids = S.sel.slice(); if (!ids.length) return;
-  for (const id of ids) {
-    const t = getTask(id); if (!t) continue;
-    t.projectId = pid;
-    try { await persistTask(t); } catch (e) { toastErr('批量移动失败', e); }
-  }
+  try {
+    await applyProjectMove(ids, pid); /* 含选中项的整棵子树，父任务一起搬时子任务保持挂接 */
+  } catch (e) { toastErr('批量移动失败', e); }
   clearSelQuiet(); render();
   toast('已把 ' + ids.length + ' 项移到「' + (S.projects.find(p => p.id == pid) || {}).name + '」');
 }
@@ -340,9 +356,15 @@ export async function batchDeleteSel() {
   const ok = await askConfirm('批量删除', '确认把选中的 <b>' + ids.length + '</b> 项移入回收站？30 天内可恢复。', true);
   if (!ok) return;
   let n = 0;
+  let timerStopped = false;
   for (const id of ids) {
     const t = getTask(id); if (!t) continue;
     const descIds = allDescendantIds(id);
+    if (S.timer && (S.timer.taskId == id || descIds.indexOf(S.timer.taskId) >= 0)) {
+      S.timer = null;
+      updateTimerBar();
+      timerStopped = true;
+    }
     try {
       await invoke('delete_task', { id: id });
       S.tasks = S.tasks.filter(x => x.id != id && descIds.indexOf(x.id) < 0);
@@ -350,6 +372,7 @@ export async function batchDeleteSel() {
       n++;
     } catch (e) { toastErr('删除失败', e); }
   }
+  if (timerStopped) invoke('stop_timer').catch(() => {});
   clearSelQuiet();
   refreshTrashCount(); render();
   toast('已删除 ' + n + ' 项（可在回收站恢复）', 'info');
@@ -380,7 +403,7 @@ export function kbMove(delta) {
   if (vis[i] === S.kbId && delta !== 0) return;
   S.kbId = vis[i];
   document.querySelectorAll('.card.kb-on, .kcard.kb-on').forEach(el => el.classList.remove('kb-on'));
-  const el = document.querySelector('.card[data-id="' + S.kbId + '"]');
+  const el = document.querySelector('.card[data-id="' + S.kbId + '"], .kcard[data-id="' + S.kbId + '"]');
   if (el) { el.classList.add('kb-on'); el.scrollIntoView({ block: 'nearest' }); }
 }
 export async function kbToggleDone() {

@@ -4,7 +4,7 @@ import { PRI_W, RISK_RED, S, curProject, isOpen, isOverdue, projTasks, riskValue
 
 export function parseFilter(raw) {
   const f = { kw: '', owner: '', pri: '', risk: false, rep: '' };
-  let s = ' ' + raw.trim() + ' ';
+  let s = ' ' + (raw || '').trim() + ' ';
   s = s.replace(/@([^\s!@]+)/g, (m, o) => { f.owner = o; return ' '; });
   s = s.replace(/!(P0|P1|P2)/gi, (m, p) => { f.pri = p.toUpperCase(); return ' '; });
   s = s.replace(/#风险/g, () => { f.risk = true; return ' '; });
@@ -16,7 +16,10 @@ export function filteredTasks() {
   const p = curProject(); if (!p) return [];
   const f = parseFilter(S.search);
   let ts = projTasks(p.id);
-  if (f.owner) ts = ts.filter(t => (t.owner || '').indexOf(f.owner) >= 0);
+  if (f.owner) {
+    const fo = f.owner.toLowerCase();
+    ts = ts.filter(t => (t.owner || '').toLowerCase().indexOf(fo) >= 0);
+  }
   if (f.pri) ts = ts.filter(t => (t.pri || 'P1') === f.pri);
   if (f.risk) ts = ts.filter(t => t.risk);
   if (f.rep) ts = ts.filter(t => t.repeat === f.rep);

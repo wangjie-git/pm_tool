@@ -168,20 +168,26 @@ export async function aiTestConn() {
   } finally { btn.disabled = false; }
 }
 export async function aiAddProfile() {
-  /* 注意：不回写当前选中档案——表单里是要另存的新供应商草稿 */
-  const f = aiFieldsToProfile();
-  if (!f.baseUrl || !f.model) { aiStatus('Base URL 和模型 ID 填好后再添加为新供应商', true); return; }
-  const preset = AI_PRESETS.find(x => x.id === f.preset) || AI_PRESETS[AI_PRESETS.length - 1];
-  let name = preset.name;
-  if (aiProfiles.some(p => p.name === name)) name = preset.name + '（' + (aiProfiles.filter(p => p.preset === f.preset).length + 1) + '）';
-  const prof = { id: 'p' + Date.now().toString(36), preset: f.preset, name: name, baseUrl: f.baseUrl, apiKey: f.apiKey, model: f.model };
-  aiProfiles.push(prof);
-  aiSelId = prof.id; aiActiveId = prof.id;
-  aiRenderProfiles();
-  aiStatus('已添加「' + name + '」并设为当前，点底部「保存」生效');
+  if (aiAdding) return;
+  aiAdding = true;
+  try {
+    /* 注意：不回写当前选中档案——表单里是要另存的新供应商草稿 */
+    const f = aiFieldsToProfile();
+    if (!f.baseUrl || !f.model) { aiStatus('Base URL 和模型 ID 填好后再添加为新供应商', true); return; }
+    const preset = AI_PRESETS.find(x => x.id === f.preset) || AI_PRESETS[AI_PRESETS.length - 1];
+    let name = preset.name;
+    if (aiProfiles.some(p => p.name === name)) name = preset.name + '（' + (aiProfiles.filter(p => p.preset === f.preset).length + 1) + '）';
+    const prof = { id: 'p' + Date.now().toString(36) + '-' + (++aiProfSeq), preset: f.preset, name: name, baseUrl: f.baseUrl, apiKey: f.apiKey, model: f.model };
+    aiProfiles.push(prof);
+    aiSelId = prof.id; aiActiveId = prof.id;
+    aiRenderProfiles();
+    aiStatus('已添加「' + name + '」并设为当前，点底部「保存」生效');
+  } finally { aiAdding = false; }
 }
 /* 删除用按钮二连击确认：设置弹窗层级高于确认弹窗，不能用 askConfirm */
 export let aiDelArm = false, aiDelTimer = null;
+let aiAdding = false; /* 另存供应商防重：双击只创建一条档案 */
+let aiProfSeq = 0; /* 档案 id 后缀序号：同毫秒连续另存时保证 id 唯一，避免删除时一次删掉两条 */
 export function aiDelProfile() {
   const btn = $id('st-ai-del');
   if (aiProfiles.length <= 1) { aiStatus('至少保留一个供应商，无法删除', true); return; }
@@ -287,12 +293,12 @@ export async function openAiTask() {
 export async function aiParseTasks() {
   const btn = $id('at-parse');
   btn.disabled = true; btn.textContent = '⏳ 解析中…'; /* 在首个 await 前禁用：快速双击不会并发两次 AI 请求 */
+  const seq = atOpenSeq; /* 会话序号在首个 await 前捕获：期间弹窗被重开时旧解析结果必须作废 */
   $id('at-status').textContent = 'AI 正在拆解任务（一般 3-10 秒）…';
   try {
     const text = $id('at-input').value.trim();
     if (!text) { $id('at-status').textContent = '先粘贴原始文字（会议记录 / 群聊 / 邮件都行）'; return; }
     const cfg = await ensureAiCfg(); if (!cfg) return;
-    const seq = atOpenSeq;
     const out = await invoke('ai_chat', {
       cfg: JSON.stringify(cfg),
       system: AI_PARSE_SYSTEM.split('{today}').join(TODAY),
@@ -317,6 +323,7 @@ export async function aiParseTasks() {
     $id('at-results').innerHTML = atParsed.map(atRowHtml).join('');
     $id('at-results').hidden = false;
     $id('at-import').hidden = false;
+    $id('at-import').disabled = false; /* 重新解析后解除上次部分失败锁定的禁用态 */
     $id('at-import').textContent = '✅ 添加所选（' + atParsed.length + '）';
     $id('at-status').textContent = '解析出 ' + atParsed.length + ' 条草稿，可直接修改后勾选添加';
   } catch (e) {
@@ -349,29 +356,40 @@ export async function aiImportParsed() {
   atImporting = true;
   const btn = $id('at-import');
   if (btn) { btn.disabled = true; btn.textContent = '⏳ 添加中…'; }
+  let added = 0, failed = false;
   try {
-    for (const t of picked) await persistTask(t);
+    for (const t of picked) { await persistTask(t); added++; }
     closeModal('mw-aitask');
     const where = pid === 0 ? '📥 收件箱' : '「' + projNameOf(pid) + '」';
     toast('🤖 AI 已添加 ' + picked.length + ' 条任务到' + where + (pid === 0 ? '，记得去收件箱分拣' : ''));
     render();
-  } catch (e) { toastErr('添加失败', e); }
+  } catch (e) {
+    /* 循环中途失败：已入库的不能重试（会重复插入），要求重新解析后再添加 */
+    failed = true;
+    toastErr('添加失败（已成功 ' + added + '/' + picked.length + ' 条）', e);
+    $id('at-status').textContent = '⚠ 部分失败：请重新粘贴并解析后再添加，避免重复入库';
+  }
   finally {
     atImporting = false;
-    if (btn) { btn.disabled = false; btn.textContent = '✅ 添加所选（' + picked.length + '）'; }
+    if (btn) {
+      if (failed) { btn.disabled = true; btn.textContent = '⚠ 需重新解析后再添加'; }
+      else { btn.disabled = false; btn.textContent = '✅ 添加所选（' + picked.length + '）'; }
+    }
   }
 }
 
 /* AI 生成检查清单：任务拆解草稿（进编辑器，可改可删后才随任务保存） */
 export async function aiGenChecklist() {
+  /* 目标任务上下文在首个 await 前全部捕获：ensureAiCfg 期间用户切任务/关弹窗时，
+   * 结果不得写进新任务的清单草稿 */
   const title = $id('m-title').value.trim();
+  const me = editingTaskId;
+  const note = $id('m-note').value.trim();
   if (!title) { toast('先填写任务标题，AI 才能生成清单', 'err'); return; }
   const btn = $id('m-cl-ai');
   btn.disabled = true; btn.textContent = '⏳…'; /* 在首个 await 前禁用：快速双击不会并发两次 AI 请求 */
   try {
     const cfg = await ensureAiCfg(); if (!cfg) return;
-    const me = editingTaskId; /* 生成期间若编辑弹窗已关闭/切换到别的任务，结果不得写入新任务的清单 */
-    const note = $id('m-note').value.trim();
     const out = await invoke('ai_chat', {
       cfg: JSON.stringify(cfg),
       system: '你是资深项目经理。为任务生成检查清单：3-6 条，每条一句话、可验证、按执行顺序，覆盖关键风险点与验收标准。只输出 JSON 数组如 ["条目1","条目2"]，不要解释、不要代码块。',

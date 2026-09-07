@@ -24,19 +24,8 @@ import { loadSmartViews } from './views/inbox.js';
 
 /* ============ 改版一次性导览（v2.1）：localStorage 记忆，任意方式关闭后不再弹 ============ */
 export function ensureTourDom() {
+  /* 已在 index.html 静态声明，若在测试无 DOM 场景则优雅防御 */
   if ($id('mw-tour')) return;
-  document.body.insertAdjacentHTML('beforeend',
-    '<div class="mwrap" id="mw-tour" hidden>'
-    + '<div class="modal tour-modal">'
-    + '<h3>👋 界面焕新了 —— 功能一个没少，只是换了摆放位置</h3>'
-    + '<div class="tour-sub">30 秒看完这 5 条，老功能都能找到：</div>'
-    + '<div class="tour-row"><span class="ti">🧭</span><div><b>侧栏四分组</b>：今日聚焦 / 收件箱 → 项目（含已归档）→ 洞察（智能视图 / 需求池）→ 记录（会议纪要 / 干系人 / 每日笔记）；页脚只留 主题 / 提醒 / 回收站 / 设置</div></div>'
-    + '<div class="tour-row"><span class="ti">🗂</span><div><b>项目内两层页签</b>：上面一层 任务 / 统计 / 决策 / 档案；任务页里再选 列表 / 看板 / 日历 / 时间线</div></div>'
-    + '<div class="tour-row"><span class="ti">⋯</span><div><b>顶栏「项目工具」</b>：Excel 导入导出、CSV / Markdown 导出、项目设置、另存为模板，都收在这个菜单里</div></div>'
-    + '<div class="tour-row"><span class="ti">⚙</span><div><b>设置分五节</b>：通用 / 自动化 / 桌面集成 / AI 供应商 / 数据（立即备份与 JSON 导入在这里）</div></div>'
-    + '<div class="tour-row"><span class="ti">⌨</span><div><b>常用快捷键</b>：N 新建任务 ｜ 1-4 切换任务视图 ｜ 5-7 直达统计 / 决策 / 档案 ｜ / 搜索 ｜ Ctrl+K 命令面板</div></div>'
-    + '<div class="tour-foot"><button class="btn blue" onclick="markTourSeen()">开始使用</button></div>'
-    + '</div></div>');
 }
 export function markTourSeen() {
   try { localStorage.setItem('pm_seen_tour', '2.1'); } catch (e) {}

@@ -8,6 +8,8 @@ import { clSuffix } from '../report.js';
 import { RISK_RED, S, STATUS_CYCLE, STATUS_LABEL, TODAY, checklistSummary, curProject, getTask, isOpen, projNameOf, repeatLabel, riskValue, rollupSummary, staleDays } from '../state.js';
 import { shiftSelectTo, toggleTaskSel, cycleStatus, delTaskById, setStatus, snoozeTask, timerText, toggleFrog, togglePin, toggleTimer } from '../tasks.js';
 import { $id, copyText, daysDiff, esc, mdRender, toast } from '../utils.js';
+import { kanbanSuppressClickUntil, listSuppressClickUntil } from './board.js';
+import { calSuppressClickUntil } from './calendar.js';
 
 
 /* ============ 今日聚焦（跨项目） ============ */
@@ -193,6 +195,7 @@ export async function toggleDone(id) {
 }
 /* 卡片标题点击（动线2）：普通=编辑详情；Ctrl/Cmd=多选；Shift=范围多选 */
 export function cardTitleClick(e, id) {
+  if (Date.now() < kanbanSuppressClickUntil || Date.now() < listSuppressClickUntil || Date.now() < calSuppressClickUntil) return;
   if (e.ctrlKey || e.metaKey) { e.preventDefault(); toggleTaskSel(id); return; }
   if (e.shiftKey) { e.preventDefault(); shiftSelectTo(id); return; }
   openTaskEdit(id);

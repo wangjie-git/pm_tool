@@ -10,6 +10,8 @@ import { $id, pad, toast, toastErr } from './utils.js';
 /* ============ 包4 #17：专注会话（全屏视图 + 可选倒计时 + 一句收尾） ============ */
 export let focusTickTimer = null;
 let focusFinishing = false; /* 双击「结束专注」防重：第二次调用直接忽略，避免 0 分钟覆写与重复通知 */
+let fcLastMins = 0;
+let fcLastTask = '';
 
 export function openFocusOverlay() {
   if (!S.timer) { toast('先在任务卡上点 ⏱ 开始计时', 'info'); return; }
@@ -59,8 +61,8 @@ export async function focusFinish() {
     S.timer = null;
     updateTimerBar();
     $id('fc-wrap').hidden = false;
-    window._fcLastMins = mins;
-    window._fcLastTask = t ? t.title : '';
+    fcLastMins = mins;
+    fcLastTask = t ? t.title : '';
     if (window.__TAURI__.core && !window.__TAURI__._isMock) { try { await invoke('notify_desktop', { title: '专注完成', body: '本轮 ' + mins + ' 分钟，写一句收尾吧' }); } catch (e) {} }
   } catch (e) { toastErr('停止计时失败', e); closeModal('mw-focus'); }
   render();
@@ -72,7 +74,7 @@ export async function saveFocusNote() {
   closeModal('mw-focus');
   $id('fc-note').value = '';
   if (!note) return;
-  const line = '- [专注 ' + (window._fcLastMins || 0) + ' 分钟] ' + note + (window._fcLastTask ? '（' + window._fcLastTask + '）' : '');
+  const line = '- [专注 ' + (fcLastMins || 0) + ' 分钟] ' + note + (fcLastTask ? '（' + fcLastTask + '）' : '');
   try {
     const key = 'dailyNote_' + TODAY;
     const cur = await invoke('get_meta', { key: key }).catch(() => '') || '';

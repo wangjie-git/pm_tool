@@ -21,6 +21,30 @@ export function setStatsRange(r) {
   invoke('set_meta', { key: 'statsRange', value: r }).catch(() => {});
   renderStats();
 }
+/* 完成趋势分桶：与页面图表同口径（全部=按周聚合防柱过密；其余按天），页面与 PNG 导出共用，
+ * 避免导出图与页面图不一致（旧实现导出恒为最近 14 天，本月/近30天/全部全对不上） */
+export function trendBuckets(done, from) {
+  const days = [];
+  if (S.statsRange === 'all') {
+    const start = from || addDays(TODAY, -119);
+    let cur = start;
+    while (cur <= TODAY) {
+      let n = 0;
+      for (let i = 0; i < 7; i++) n += done.filter(t => t.doneAt === addDays(cur, i)).length;
+      days.push({ d: cur, n: n });
+      cur = addDays(cur, 7);
+    }
+    if (days.length > 26) days.splice(0, days.length - 26);
+  } else {
+    let cur = from || addDays(TODAY, -6);
+    if (S.statsRange === 'month') cur = TODAY.slice(0, 7) + '-01';
+    while (cur <= TODAY) {
+      days.push({ d: cur, n: done.filter(t => t.doneAt === cur).length });
+      cur = addDays(cur, 1);
+    }
+  }
+  return days;
+}
 
 export function pctile(sortedArr, p) {
   if (!sortedArr.length) return null;
@@ -56,7 +80,7 @@ export function throughputSeries(pid) {
 export function monteCarloForecast(pid, remaining) {
   const series = throughputSeries(pid);
   const buckets = series.days.map(x => x.n);
-  if (!buckets.length || remaining <= 0) return { ok: false, weekly: series.weekly, total: series.total };
+  if (!buckets.length || remaining <= 0 || !series.total || buckets.every(n => n === 0)) return { ok: false, weekly: series.weekly, total: series.total };
   const sims = 1000;
   const horizon = 365;
   const finishDays = [];
@@ -141,25 +165,7 @@ export async function renderStats() {
     + statCard(rate + '%', '完成率', 'c-green') + '</div>';
 
   /* 完成趋势：随范围变化（全部=按周聚合，避免柱子过密） */
-  const days = [];
-  if (S.statsRange === 'all') {
-    const start = from || addDays(TODAY, -119);
-    let cur = start;
-    while (cur <= TODAY) {
-      let n = 0;
-      for (let i = 0; i < 7; i++) n += done.filter(t => t.doneAt === addDays(cur, i)).length;
-      days.push({ d: cur, n: n });
-      cur = addDays(cur, 7);
-    }
-    if (days.length > 26) days.splice(0, days.length - 26);
-  } else {
-    let cur = from || addDays(TODAY, -6);
-    if (S.statsRange === 'month') cur = TODAY.slice(0, 7) + '-01';
-    while (cur <= TODAY) {
-      days.push({ d: cur, n: done.filter(t => t.doneAt === cur).length });
-      cur = addDays(cur, 1);
-    }
-  }
+  const days = trendBuckets(done, from);
   const maxN = Math.max(1, ...days.map(x => x.n));
   h += '<div class="stat-panel"><h3>📈 ' + rangeLabel + '完成趋势（共 ' + doneInRange.length + ' 项）</h3><div class="bars' + (days.length > 16 ? ' small' : '') + '">';
   days.forEach(x => {
@@ -336,10 +342,7 @@ export async function exportStatsPng() {
   open.forEach(t => { const o = t.owner || '我方'; byOwner[o] = (byOwner[o] || 0) + 1; });
   const owners = Object.keys(byOwner).sort((a, b) => byOwner[b] - byOwner[a]).slice(0, 6);
   const maxO = Math.max(5, ...owners.map(o => byOwner[o]), 1);
-  const trend = [];
-  let cur = from || addDays(TODAY, -13);
-  while (cur <= TODAY) { trend.push({ d: cur, n: done.filter(t => t.doneAt === cur).length }); cur = addDays(cur, 1); }
-  if (trend.length > 14) trend.splice(0, trend.length - 14);
+  const trend = trendBuckets(done, from); /* 与页面同口径：本月/近30天/全部 导出图与页面一致 */
   const maxT = Math.max(1, ...trend.map(x => x.n));
   const H = 420;
   const sv = [];
@@ -400,7 +403,7 @@ export function forecastHtml(fc, openCnt) {
   h += '</tbody></table>';
   const hist = fc.hist.slice(-30);
   if (hist.length > 1) {
-    const maxP = Math.max(...hist.map(x => x.p));
+    const maxP = Math.max(0.0001, ...hist.map(x => x.p));
     h += '<div class="bars small" style="height:70px;margin-top:10px;">' + hist.map(x =>
       '<div class="bar-col" title="' + x.d + '：' + Math.round(x.p * 100) + '%"><div class="bar" style="height:' + Math.max(4, Math.round(x.p / maxP * 100)) + '%"></div>'
       + '<span class="bl">' + x.d.slice(5) + '</span></div>').join('') + '</div>';

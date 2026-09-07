@@ -6,7 +6,7 @@ import { invoke } from '../backend.js';
 import { askConfirm, closeModal, openModal } from '../modal.js';
 import { render } from '../render.js';
 import { S, TODAY, allDescendantIds, curProject, getTask, parseChecklist, projTasks } from '../state.js';
-import { delTaskById, persistTask, switchProject } from '../tasks.js';
+import { applyProjectMove, delTaskById, persistTask, switchProject } from '../tasks.js';
 import { $id, backlinksOf, esc, mdRender, nowMinStr, toast, toastErr } from '../utils.js';
 import { kanbanSuppressClickUntil, listSuppressClickUntil } from '../views/board.js';
 import { calSuppressClickUntil } from '../views/calendar.js';
@@ -144,10 +144,16 @@ export async function saveTaskModal(saveAndNew) {
   if (!isNew && !base) { toast('任务已不存在（可能已被删除）', 'err'); closeModal('mw-task'); return; }
   const ns = $id('m-status').value;
   const remindRaw = $id('m-remind').value ? $id('m-remind').value.replace('T', ' ') : '';
+  const due = $id('m-due').value || TODAY;
+  const startDate = $id('m-start').value || '';
+  if (startDate && due && startDate > due) {
+    toast('开始日期不能晚于截止日期', 'err');
+    return;
+  }
   const t = Object.assign({}, base, {
     title: title,
-    due: $id('m-due').value || TODAY,
-    startDate: $id('m-start').value || '',
+    due: due,
+    startDate: startDate,
     owner: $id('m-owner').value.trim() || '我方',
     pri: $id('m-pri').value,
     status: ns,
@@ -171,6 +177,11 @@ export async function saveTaskModal(saveAndNew) {
     else if (t.doingSince) t.doingSince = '';
   }
   try {
+    if (t.projectId !== base.projectId && base.id) {
+      /* 换项目：子树跟随（父任务搬家带全部子孙；子任务单独搬走则脱离原父任务），
+       * 避免跨项目悬空父子链（进度上卷/时间线树错乱） */
+      await applyProjectMove([base.id], t.projectId);
+    }
     const saved = await persistTask(t);
     closeModal('mw-task');
     render();

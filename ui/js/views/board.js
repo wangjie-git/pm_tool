@@ -92,6 +92,7 @@ export function bindListDrag() {
       document.body.classList.remove('dragging-card');
       if (d.srcEl) d.srcEl.classList.remove('drag-src-list');
       document.querySelectorAll('.card.list-drop-before, .card.list-drop-after').forEach(el => el.classList.remove('list-drop-before', 'list-drop-after'));
+      if (d.started) listSuppressClickUntil = Date.now() + 400;
       return;
     }
     if (!ldrag.started) {
@@ -156,6 +157,7 @@ export function renderKanban() {
   const p = curProject();
   const sle = p ? sleP85Days(p.id) : null; /* 包1 #3：历史 cycle time 85 分位做离群线 */
   const ts = filteredTasks();
+  const vis = []; /* 键盘行导航/批量选择可见序：与列表视图一致，看板也要填 */
   let h = '';
   if (sle) {
     h += '<div class="sle-note" title="ActionableAgile SLE：最近完成的任务从开始到完成的 85 分位时长">📏 SLE：85% 的任务在 ' + sle.p85 + ' 天内完成（近 ' + sle.n + ' 条样本）；进行中超过该时长标红</div>';
@@ -169,10 +171,11 @@ export function renderKanban() {
       + (wipOver ? '<span class="wipwarn" title="WIP 限制：进行中别超过 ' + WIP_LIMIT + ' 项，先完成再开始">⚠ 超过 ' + WIP_LIMIT + ' 项</span>' : '')
       + '</div>'
       + (cards.length ? cards.map(t => {
+          vis.push(t.id);
           const roll = rollupSummary(t);
           const stale = staleDays(t);
           const pct = roll && roll.total ? Math.round(roll.done / roll.total * 100) : 0;
-          return '<div class="kcard ' + (t.sortOrder < 0 ? 'pinned' : '') + (riskValue(t) >= RISK_RED && isOpen(t) ? ' risk-high' : '') + '" data-id="' + t.id + '" onclick="openTaskEdit(' + t.id + ')">'
+          return '<div class="kcard ' + (t.sortOrder < 0 ? 'pinned' : '') + (riskValue(t) >= RISK_RED && isOpen(t) ? ' risk-high' : '') + (S.sel.indexOf(t.id) >= 0 ? ' sel' : '') + (S.kbId === t.id ? ' kb-on' : '') + '" data-id="' + t.id + '" onclick="cardTitleClick(event,' + t.id + ')">'
           + '<div class="kt">' + (t.sortOrder < 0 ? '📌 ' : '') + (S.frogs.ids.indexOf(t.id) >= 0 ? '🐸 ' : '') + esc(t.title) + '</div>'
           + (roll && roll.total && t.status !== 'done' ? '<div class="kbar"><i style="width:' + pct + '%"></i></div>' : '')
           + '<div class="km">' + dueChipHtml(t)
@@ -190,6 +193,7 @@ export function renderKanban() {
         : '<div class="empty">把卡片拖到这里</div>')
       + '</div>';
   });
+  S.visibleIds = vis; /* 键盘行导航（J/K/空格/Enter）与批量选择在看板视图同样可用 */
   $id('viewKanban').innerHTML = h;
 }
 
@@ -213,7 +217,9 @@ export function bindKanbanDrag() {
     if (e.buttons === 0) {
       if (kdrag.ghost) kdrag.ghost.remove();
       if (kdrag.srcEl) kdrag.srcEl.classList.remove('drag-src');
+      if (kdrag.hoverCol) kdrag.hoverCol.classList.remove('drop');
       document.body.classList.remove('dragging-card');
+      if (kdrag.started) kanbanSuppressClickUntil = Date.now() + 400;
       kdrag = null;
       return;
     }

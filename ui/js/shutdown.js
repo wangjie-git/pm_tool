@@ -22,6 +22,8 @@ export async function shutdownCheck() {
     const saved = await getShutdownMeta(TODAY);
     if (saved) { shutdownShownDate = TODAY; return; }
   } catch (e) {}
+  /* await 期间用户可能打开了其他弹窗（设置/面板等）：再查一次，避免收尾问答叠加上去 */
+  if (document.querySelector('.mwrap:not([hidden])')) return;
   shutdownShownDate = TODAY;
   const shut = { done: '', stuck: '', block: '', next3: '' };
   $id('sd-done').value = ''; $id('sd-stuck').value = ''; $id('sd-block').value = ''; $id('sd-next').value = '';

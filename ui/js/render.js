@@ -37,6 +37,7 @@ export function renderView() {
     S.visibleIds = []; /* 键盘行导航/批量选择的可见任务序，由支持的任务视图渲染器填充，防跨视图残留 */
     S.kbId = null;
     S.sel = [];
+    S.selAnchor = null;
   }
   lastViewCtx = ctx;
   renderViewInner();

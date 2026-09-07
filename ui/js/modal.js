@@ -2,8 +2,19 @@
 
 import { $id } from './utils.js';
 
-export function openModal(id) { $id(id).hidden = false; }
-export function closeModal(id) { $id(id).hidden = true; }
+/* 弹窗 z 轴递增：所有 .mwrap 静态 z-index 相同（100），层叠顺序 = DOM 顺序，
+ * 而 mw-confirm/mw-prompt 在 DOM 里排在 mw-settings/mw-newproj/mw-trash 等之前——
+ * 若不提升层级，设置弹窗里点「导入」弹出的覆盖确认会被宿主弹窗完全遮住、点不到。
+ * 每次 openModal 递增 zIndex，后打开的弹窗必然盖住先打开的。 */
+let _modalZ = 100;
+export function openModal(id) {
+  const el = $id(id);
+  if (!el) return;
+  el.hidden = false;
+  if (_modalZ > 165) _modalZ = 100; /* 保持在 100~165，不盖过批处理条(180)/Toast(1000)/右键菜单(220) */
+  el.style.zIndex = ++_modalZ;
+}
+export function closeModal(id) { const el = $id(id); if (el) el.hidden = true; }
 
 export let _confirmResolve = null, _promptResolve = null;
 export function askConfirm(title, msgHtml, danger) {

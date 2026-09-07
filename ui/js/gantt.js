@@ -176,6 +176,9 @@ export function renderTimeline() {
     + sv.join('')
     + '</div></div>';
   $id('viewTimeline').innerHTML = h;
+  /* 视图重渲染即丢弃进行中的拖拽状态：拖到一半切走视图（快捷键 1-7 等）时，
+   * 旧 svg 已脱离文档，残留的 gdrag/cdrag 会在隐藏 DOM 上继续跟手并在下次 mouseup 误提交日期 */
+  gdrag = null; cdrag = null;
   bindGanttDrag();
   /* 上周对比开启但快照缓存未就绪：加载后补一次渲染 */
   if (S.ganttCompare && weekSnapPid != p.id && !weekSnapLoading) {
@@ -270,6 +273,15 @@ export function bindGanttDrag() {
 }
 function headerHOffset() { return 44; }
 document.addEventListener('mousemove', e => {
+  /* 鼠标在窗口外松开过（mouseup 不送达）：按钮已抬起则清理残留拖拽态，
+   * 否则幽灵拖拽会继续跟手、下一次任意 mouseup 会把光标处日期写进任务/弹出新建弹窗 */
+  if (e.buttons === 0) {
+    if (cdrag) { if (cdrag.rect) cdrag.rect.remove(); cdrag = null; }
+    if (gdrag) gdrag = null;
+    const el = $id('gantt-create-rect');
+    if (el) el.remove();
+    return;
+  }
   if (cdrag) {
     if (!cdrag.rect) return;
     const svg = $id('gantt-svg');

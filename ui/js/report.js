@@ -10,23 +10,40 @@ export async function getShutdownMeta(dateStr) {
   return getJsonMeta('shutdown_' + dateStr, null);
 }
 export let reportOpenSeq = 0; /* 报告生成序号：快速连点日报/周报时后点击者胜，防止先发请求晚返回覆盖新预览（aiPolishReport 也用） */
+/* 报告所属上下文：发送时用「生成报告时的项目」，不能重读当前项目——
+ * 报告弹窗打开期间经 Ctrl+K / 深链接切换项目后，重读会拿 B 项目的 Webhook 推 A 的报告 */
+let reportCtx = null;
 export async function openReport(kind) {
   const p = curProject(); if (!p) return;
   const seq = ++reportOpenSeq;
   const s = parseSettings(p);
+  reportCtx = { pid: p.id, webhook: s.webhook || {} };
   const ts = projTasks(p.id);
   let out = '';
   if (kind === 'day') {
     const yest = addDays(TODAY, -1);
-    const doneL = ts.filter(t => t.status === 'done' && t.doneAt === yest);
+    const doneToday = ts.filter(t => t.status === 'done' && t.doneAt === TODAY);
+    const doneYest = ts.filter(t => t.status === 'done' && t.doneAt === yest);
     const planL = ts.filter(t => (t.status === 'todo' || t.status === 'doing') && t.due && t.due <= TODAY).sort((a, b) => a.due < b.due ? -1 : 1);
     const riskL = ts.filter(t => t.risk && t.status !== 'done')
       .slice().sort((a, b) => riskValue(b) - riskValue(a));
-    out = '【' + s.report + '】' + TODAY + '\n\n一、昨日完成：\n';
     const shut = await getShutdownMeta(yest);
-    let hadShut = false;
-    if (shut && shut.done && shut.done.trim()) { hadShut = true; out += '  ★ ' + shut.done.trim() + '\n'; }
-    out += doneL.length ? doneL.map(t => '  ✔ ' + t.title + clSuffix(t)).join('\n') : (hadShut ? '' : '  （无，请补录昨天完成的事项）');
+    const shutToday = await getShutdownMeta(TODAY);
+
+    out = '【' + s.report + '】' + TODAY + '\n\n';
+    if (doneToday.length || (shutToday && shutToday.done && shutToday.done.trim())) {
+      out += '一、今日完成（' + doneToday.length + ' 项）：\n';
+      if (shutToday && shutToday.done && shutToday.done.trim()) out += '  ★ ' + shutToday.done.trim() + '\n';
+      out += doneToday.length ? doneToday.map(t => '  ✔ ' + t.title + clSuffix(t)).join('\n') : '';
+      if (doneYest.length) {
+        out += '\n\n昨日完成：\n' + doneYest.map(t => '  ✔ ' + t.title + clSuffix(t)).join('\n');
+      }
+    } else {
+      out += '一、昨日完成：\n';
+      let hadShut = false;
+      if (shut && shut.done && shut.done.trim()) { hadShut = true; out += '  ★ ' + shut.done.trim() + '\n'; }
+      out += doneYest.length ? doneYest.map(t => '  ✔ ' + t.title + clSuffix(t)).join('\n') : (hadShut ? '' : '  （无，请补录昨天完成的事项）');
+    }
     /* 收尾问答的「明天三件事」进入今日计划最前（#2） */
     let planLines = [];
     if (shut && shut.next3 && shut.next3.trim()) {
@@ -150,11 +167,11 @@ export function copyReport() {
 }
 /* 日报/周报一键发到群机器人（#8）：企微/钉钉/飞书 Webhook */
 let reportSending = false; /* 发送中防护：多段发送期间忽略重复点击，避免向群里重复推送 */
+let reportSendFrom = 0; /* 已投递段数：中途失败后重试只发未送达的段，不重复推送前几段 */
 export async function sendReportToGroup() {
   if (reportSending) return;
-  const p = curProject(); if (!p) return;
-  const s = parseSettings(p);
-  const wh = s.webhook || {};
+  if (!reportCtx) return;
+  const wh = reportCtx.webhook || {};
   if (!wh.type || !wh.url) { toast('先在项目设置里配置群机器人 Webhook', 'err'); return; }
   const text = $id('r-area').value;
   if (!text.trim()) { toast('报告内容是空的，先写点内容再发', 'err'); return; }
@@ -168,15 +185,17 @@ export async function sendReportToGroup() {
   reportSending = true;
   if (btn) { btn.disabled = true; btn.textContent = '⏳ 发送中…'; }
   try {
-    for (let i = 0; i < chunks.length; i++) {
+    for (let i = reportSendFrom; i < chunks.length; i++) {
       const b = wh.type === 'feishu' ? { msg_type: 'text', content: { text: chunks[i] } } : { msgtype: 'text', text: { content: chunks[i] } };
       const resp = await invoke('send_webhook', { url: wh.url, signType: wh.type === 'dingtalk' ? 'dingtalk' : '', secret: wh.secret || '', body: JSON.stringify(b) });
       if (/errcode["']?\s*[:=]\s*[^0]/i.test(resp) && /errmsg/i.test(resp)) {
+        reportSendFrom = i; /* 记住失败段：重试从这一段开始，不重发已投递的前缀 */
         throw new Error('机器人返回错误（第 ' + (i + 1) + ' 段）：' + resp);
       }
     }
+    reportSendFrom = 0;
     toast('已发送到' + ({ wecom: '企业微信', dingtalk: '钉钉', feishu: '飞书' }[wh.type]) + '群（' + chunks.length + ' 条消息）');
-    if ($id('r-kind').value === 'week') await saveWeekBaseline(p.id);
+    if ($id('r-kind').value === 'week') await saveWeekBaseline(reportCtx.pid);
   } catch (e) { toastErr('发送失败', e); }
   finally {
     reportSending = false;

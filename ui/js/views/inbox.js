@@ -93,7 +93,8 @@ export function renderSmart() {
   const box = $id('viewSmart');
   if (!v && !isAutoStale) { box.innerHTML = '<div class="empty">视图不存在</div>'; return; }
   const archIds = S.projects.filter(p => p.archived).map(p => p.id);
-  const crit = isAutoStale ? { staleDays: 14 } : v.crit;
+  /* 旧版/损坏 meta 可能没有 crit：缺省为空条件，避免 matchSmart 访问 undefined.risk 让整页渲染崩溃 */
+  const crit = isAutoStale || !v ? {} : (v.crit || {});
 
   /* 风险登记册：表格化，按风险值排序（#6） */
   if (v && v.register) {
@@ -125,11 +126,13 @@ export function renderSmart() {
     if (ts2.length) groups.push({ p: p, ts: ts2.sort(cmpTask) });
   });
   let h = groups.length ? '' : '<div class="empty" style="padding:60px 0;text-align:center;">没有匹配的任务 🎉</div>';
+  const vis = [];
   groups.forEach(g => {
     h += '<h2 class="grp">📂 ' + esc(g.p.name) + ' <span class="gcnt">' + g.ts.length + ' 项</span>'
       + '<button class="linkbtn" onclick="switchProject(' + g.p.id + ')">进入项目 →</button></h2>';
-    g.ts.forEach(t => { h += cardHtml(t, false); });
+    g.ts.forEach(t => { vis.push(t.id); h += cardHtml(t, false); });
   });
+  S.visibleIds = vis; /* 键盘行导航（J/K/空格/Enter）在智能视图同样可用 */
   box.innerHTML = h;
 }
 export function openSaveSmartView() {
@@ -138,16 +141,28 @@ export function openSaveSmartView() {
   $id('sv-wait').value = ''; $id('sv-stale').value = ''; $id('sv-pri').value = '';
   openModal('mw-smart');
 }
+let svSaving = false; /* 防重：双击「保存视图」只创建一次 */
 export async function saveSmartViewModal() {
-  const name = $id('sv-name').value.trim();
-  if (!name) { toast('给视图起个名字', 'err'); return; }
-  const crit = readSmartCrit();
-  if (!Object.keys(crit).length) { toast('至少选一个条件', 'err'); return; }
-  S.smartViews.push({ id: 'v' + Date.now(), name: name, crit: crit, builtin: 0 });
-  await putJsonMeta('smartViews', S.smartViews);
-  closeModal('mw-smart');
-  render();
-  toast('智能视图「' + name + '」已保存');
+  if (svSaving) return;
+  svSaving = true;
+  try {
+    const name = $id('sv-name').value.trim();
+    if (!name) { toast('给视图起个名字', 'err'); return; }
+    const crit = readSmartCrit();
+    if (!Object.keys(crit).length) { toast('至少选一个条件', 'err'); return; }
+    const v = { id: 'v' + Date.now(), name: name, crit: crit, builtin: 0 };
+    S.smartViews.push(v);
+    try {
+      await putJsonMeta('smartViews', S.smartViews);
+    } catch (e) {
+      S.smartViews = S.smartViews.filter(x => x.id !== v.id); /* 保存失败回滚，重试不会产生重复视图 */
+      toastErr('保存智能视图失败', e);
+      return;
+    }
+    closeModal('mw-smart');
+    render();
+    toast('智能视图「' + name + '」已保存');
+  } finally { svSaving = false; }
 }
 function readSmartCrit() {
   const crit = {};
@@ -183,9 +198,18 @@ export async function deleteSmartView(id) {
   const v = smartViewById(id); if (!v) return;
   const ok = await askConfirm('删除智能视图', '删除「' + esc(v.name) + '」？只删视图，不动任务。', false);
   if (!ok) return;
-  S.smartViews = S.smartViews.filter(x => x.id !== id);
-  if (S.smartId === id) S.smartId = null; /* 清除指向已删除视图的残留引用 */
-  await putJsonMeta('smartViews', S.smartViews);
+  const removed = S.smartViews.filter(x => x.id !== id);
+  const wasCur = S.smartId === id;
+  S.smartViews = removed;
+  if (wasCur) S.smartId = null; /* 清除指向已删除视图的残留引用 */
+  try {
+    await putJsonMeta('smartViews', removed);
+  } catch (e) {
+    S.smartViews = removed.concat([v]); /* 删除失败回滚，避免内存与存储分叉 */
+    if (wasCur) S.smartId = id;
+    toastErr('删除智能视图失败', e);
+    return;
+  }
   S.mode = 'project';
   render();
 }
@@ -213,6 +237,6 @@ export function matchSmart(t, crit) {
 }
 export function smartTaskCount(v) {
   const archIds = S.projects.filter(p => p.archived).map(p => p.id);
-  return S.tasks.filter(t => archIds.indexOf(t.projectId) < 0 && matchSmart(t, v.crit)).length;
+  return S.tasks.filter(t => archIds.indexOf(t.projectId) < 0 && matchSmart(t, (v && v.crit) || {})).length;
 }
 

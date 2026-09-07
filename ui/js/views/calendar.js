@@ -87,7 +87,7 @@ export function renderCalendar() {
     });
     if (gs.length > 3 - Math.min(items.length, 3) && items.length <= 3) cells += '<div class="cal-more dim" title="仅展示预占数量，预占到期未完成会自动顺延">…还有 ' + (gs.length - Math.max(0, 3 - items.length)) + ' 次预占</div>';
     const dcnt = items.length + gs.length;
-    h += '<div class="cal-cell cal-creatable' + (isToday ? ' today' : '') + '" data-day="' + ds + '">'
+    h += '<div class="cal-cell cal-creatable' + (isToday ? ' today' : '') + '" data-day="' + ds + '" onclick="calNewAt(\'' + ds + '\')">'
       + '<div class="cal-d">' + d + (dcnt ? ' <span class="cal-n">' + dcnt + '</span>' : '') + '</div>'
       + '<span class="cal-add-hint" data-day="' + ds + '" onclick="event.stopPropagation();calNewAt(\'' + ds + '\')">＋</span>'
       + cells + '</div>';

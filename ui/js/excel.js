@@ -22,6 +22,14 @@ export const XW_STEPS = ['① 选文件', '② 选工作表', '③ 列映射', '
 export let XW = null;
 let xwSheetSeq = 0; /* 工作表加载序号（xwLoadSheet 竞态防护，见 xwSheetChanged） */
 
+/* 值映射下拉的委托监听：原始单元格值经 data-vm 传递，避免把单元格文本拼进内联 JS 字符串
+ * （多行 / 结尾反斜杠 / 引号会炸掉内联 onchange，该行映射被静默忽略）。模块级注册一次即可。 */
+document.addEventListener('change', e => {
+  const el = e.target;
+  if (!el || el.tagName !== 'SELECT' || !el.hasAttribute('data-vm') || !XW) return;
+  XW.valueMap[el.getAttribute('data-vm')] = el.value;
+});
+
 export function openExcelWizard() {
   XW = { step: 1, path: '', fileName: '', sheets: [], sheet: '', headerRow: 0, rows: null,
     map: {}, valueMap: {}, pctToStatus: true, targetMode: 'new', newProjName: '', targetPid: 0, sample: false, result: null };
@@ -69,8 +77,7 @@ export function renderExcelWizard() {
       h += '<label class="xw-vm-title">值映射（Jira 特色：把表里的「已完成/100%/done」→已完成、「进行中/实施中」→进行中；留空 = 按关键词自动判断）</label><div class="xw-vmaps">';
       vals.forEach(v => {
         const auto = /完成|done|已|100|close/i.test(v) ? '已完成' : /进行|实施|doing|启动|开始/i.test(v) ? '进行中' : '待办';
-        const key = v.replace(/"/g, '&quot;');
-        h += '<div class="xw-map-row"><label title="' + esc(v) + '">' + esc(v.slice(0, 16)) + '</label><select onchange="xwValueMap(\'' + key.replace(/'/g, "\\'") + '\', this.value)">'
+        h += '<div class="xw-map-row"><label title="' + esc(v) + '">' + esc(v.slice(0, 16)) + '</label><select data-vm="' + esc(v) + '">'
           + '<option value="">自动（→' + auto + '）</option>'
           + ['todo', 'doing', 'done'].map(s2 => '<option value="' + s2 + '"' + (XW.valueMap[v] === s2 ? ' selected' : '') + '>' + ({ todo: '待办', doing: '进行中', done: '已完成' })[s2] + '</option>').join('')
           + '<option value="skip"' + (XW.valueMap[v] === 'skip' ? ' selected' : '') + '>跳过该行</option></select></div>';
@@ -98,6 +105,7 @@ export function renderExcelWizard() {
     body.innerHTML = h;
   } else if (XW.step === 5) {
     const alive = S.projects.filter(p => !p.archived);
+    if (!XW.targetPid && alive.length) XW.targetPid = alive[0].id;
     body.innerHTML = '<label>导入到哪？</label>'
       + '<label class="ck big"><input type="radio" name="xw-target" value="new" ' + (XW.targetMode === 'new' ? 'checked' : '') + ' onchange="XW.targetMode=\'new\'"> 新建项目（名称默认取文件名）</label>'
       + '<div class="xw-map-row" style="margin-left:22px;"><input type="text" id="xw-newname" value="' + esc(XW.newProjName) + '" placeholder="项目名称"></div>'
@@ -405,6 +413,10 @@ export function xwMatrixTable(rows, maxRows, headerRow) {
 /* 向导「下一步」：2/3/4 步推进，第 5 步点开始导入 */
 export function xwNext() {
   if (!XW) return;
+  /* 防双击跳步：300ms 内第二次点击忽略（否则 ②→④ 静默跳过列映射 / ③→⑤ 跳过预览） */
+  const now = Date.now();
+  if (now - (XW._nextT || 0) < 300) return;
+  XW._nextT = now;
   if (XW.step === 2 && XW.sheet) { XW.step = 3; renderExcelWizard(); }
   else if (XW.step === 3) { XW.step = 4; renderExcelWizard(); }
   else if (XW.step === 4) { XW.step = 5; renderExcelWizard(); }

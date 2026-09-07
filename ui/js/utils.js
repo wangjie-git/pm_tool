@@ -146,9 +146,22 @@ export function handleWikilinkClick(e) {
   const t = a.getAttribute('data-w');
   if (!t) return;
   const task = findTaskByTitle(t);
-  if (task) { S.cur = '' + task.projectId; S.mode = 'project'; render(); openTaskEdit(task.id); return; }
+  if (task) {
+    if (task.projectId) {
+      S.cur = '' + task.projectId;
+      S.mode = 'project';
+    } else {
+      S.mode = 'inbox';
+    }
+    render();
+    openTaskEdit(task.id);
+    return;
+  }
   const d = S.decisions.find(x => x.title === t);
   if (d) { if (d.projectId && S.projects.some(p => p.id == d.projectId)) switchProject(d.projectId); S.mode = 'project'; S.view = 'decisions'; render(); openDecisionModal(d.id); return; }
+  /* 链接指向不存在的记录时退回命令面板搜索；其他弹窗打开时不叠加，
+   * 否则在任务编辑弹窗里点失效反链会盖上面板，选中任务会静默覆盖未保存的编辑 */
+  if (document.querySelector('.mwrap:not([hidden])')) { toast('没有找到「' + t + '」，先关闭当前弹窗再用 Ctrl+K 搜索', 'info'); return; }
   openPalette();
   $id('pal-input').value = t;
   renderPalette(t);
