@@ -5,7 +5,7 @@ import { cmpTask } from './filter.js';
 import { askConfirm } from './modal.js';
 import { render } from './render.js';
 import { S, TODAY, checklistSummary, curProject, getTask, projTasks, repeatLabel } from './state.js';
-import { createProject, loadFrogs, loadRules, updateTimerBar } from './tasks.js';
+import { createProject, loadFrogs, loadRules, refreshTrashCount, updateTimerBar } from './tasks.js';
 import { toast, toastErr } from './utils.js';
 
 export async function exportBackup() {
@@ -49,52 +49,55 @@ export async function importBackup() {
   if (!d || !Array.isArray(d.projects)) { toast('文件格式不对：缺少 projects', 'err'); return; }
   const ok = await askConfirm('导入备份', '导入将<b>覆盖当前全部数据</b>（' + d.projects.length + ' 个项目 / ' + (d.tasks || []).length + ' 条事项），继续？', true);
   if (!ok) return;
+  /* 数值字段防 NaN：损坏/缺字段的备份按 0 归位（后端按 id=0 视为新建），
+   * 否则 NaN 序列化为 null 会让整次导入在反序列化 i64 时失败且不指明哪条记录 */
+  const nid = v => { const n = +v; return Number.isFinite(n) ? n : 0; };
   d.projects = d.projects.map(p => ({
-    id: +p.id, name: String(p.name || '未命名'), archived: !!p.archived,
+    id: nid(p.id), name: String(p.name || '未命名'), archived: !!p.archived,
     createdAt: p.createdAt || TODAY,
     settingsJson: typeof p.settingsJson === 'string'
       ? p.settingsJson
       : JSON.stringify(p.settings || { report: (p.name || '') + ' 进度日报', milestones: [{ label: '', date: '' }, { label: '', date: '' }, { label: '', date: '' }] })
   }));
   d.tasks = (d.tasks || []).map(t => ({
-    id: +t.id, projectId: +t.projectId, title: String(t.title || ''), due: t.due || TODAY,
+    id: nid(t.id), projectId: nid(t.projectId), title: String(t.title || ''), due: t.due || TODAY,
     owner: t.owner || '', pri: t.pri || 'P1', status: t.status || 'todo', doneAt: t.doneAt || '',
     risk: !!t.risk, repeat: t.repeat || '', note: t.note || '', createdAt: t.createdAt || TODAY, sortOrder: +t.sortOrder || 0,
     updatedAt: t.updatedAt || '',
     checklistJson: typeof t.checklistJson === 'string' ? t.checklistJson : '[]',
     deferCount: +t.deferCount || 0, riskProb: +t.riskProb || 0, riskImpact: +t.riskImpact || 0,
     riskMitigate: t.riskMitigate || '', riskEscalate: t.riskEscalate || '',
-    doingSince: t.doingSince || '', parentId: +t.parentId || 0,
+    doingSince: t.doingSince || '', parentId: nid(t.parentId),
     startDate: t.startDate || '', isMilestone: !!t.isMilestone,
     remindAt: t.remindAt || ''
   }));
   d.ideas = (d.ideas || []).map(i => ({
-    id: +i.id, title: String(i.title || ''), note: String(i.note || ''),
+    id: nid(i.id), title: String(i.title || ''), note: String(i.note || ''),
     value: Math.max(1, Math.min(10, +i.value || 3)), effort: Math.max(1, Math.min(10, +i.effort || 3)),
     converted: +i.converted || 0, createdAt: i.createdAt || TODAY
   }));
   d.timeLogs = (d.timeLogs || []).map(l => ({
-    id: +l.id, taskId: +l.taskId || 0, projectId: +l.projectId || 0,
+    id: nid(l.id), taskId: nid(l.taskId), projectId: nid(l.projectId),
     date: l.date || TODAY, minutes: +l.minutes || 0, note: l.note || ''
   }));
   /* 决策/会议/干系人必须一起导入：后端 import_data 是全量替换语义，
    * 不传这三类会先 DELETE 再插空数组，等于清空 */
   d.decisions = (d.decisions || []).map(x => ({
-    id: +x.id, projectId: +x.projectId || 0, title: String(x.title || ''),
+    id: nid(x.id), projectId: nid(x.projectId), title: String(x.title || ''),
     background: String(x.background || ''), options: String(x.options || ''),
     decision: String(x.decision || ''), reason: String(x.reason || ''),
     date: x.date || TODAY, status: x.status || '生效中',
-    taskId: +x.taskId || 0, meetingId: +x.meetingId || 0, createdAt: x.createdAt || ''
+    taskId: nid(x.taskId), meetingId: nid(x.meetingId), createdAt: x.createdAt || ''
   }));
   d.meetings = (d.meetings || []).map(x => ({
-    id: +x.id, date: x.date || TODAY, title: String(x.title || ''),
+    id: nid(x.id), date: x.date || TODAY, title: String(x.title || ''),
     attendees: String(x.attendees || ''), conclusion: String(x.conclusion || ''),
-    projectId: +x.projectId || 0,
+    projectId: nid(x.projectId),
     itemsJson: typeof x.itemsJson === 'string' ? x.itemsJson : '[]',
     createdAt: x.createdAt || ''
   }));
   d.contacts = (d.contacts || []).map(x => ({
-    id: +x.id, name: String(x.name || ''), org: String(x.org || ''),
+    id: nid(x.id), name: String(x.name || ''), org: String(x.org || ''),
     tags: String(x.tags || ''), projects: String(x.projects || ''), note: String(x.note || ''),
     lastContact: x.lastContact || '', followupDays: Math.max(1, +x.followupDays || 7), createdAt: x.createdAt || ''
   }));
@@ -119,6 +122,7 @@ export async function importBackup() {
     S.sel = [];
     if (!S.projects.length) await createProject('示例项目');
     if (!curProject()) S.cur = '' + S.projects[0].id;
+    await refreshTrashCount(); /* 导入清空回收站（后端 DELETE deleted_items），同步角标避免残留旧数字 */
     render();
     toast('导入完成');
   } catch (e) { toastErr('导入失败', e); }

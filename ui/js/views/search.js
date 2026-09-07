@@ -11,11 +11,14 @@ import { openDecisionModal } from './decisions.js';
 import { openMeetingModal } from './meetings.js';
 
 function hi(text, kw) {
-  const s = esc(String(text || ''));
+  const raw = String(text || '');
+  const s = esc(raw);
   if (!kw) return s;
-  const i = s.toLowerCase().indexOf(kw.toLowerCase());
+  const lk = kw.toLowerCase();
+  const i = raw.toLowerCase().indexOf(lk);
   if (i < 0) return s;
-  return s.slice(0, i) + '<mark>' + s.slice(i, i + kw.length) + '</mark>' + s.slice(i + kw.length);
+  /* 对“原文”分段再各自转义，避免按关键词长度切转义串把 &amp; 等实体截断 */
+  return esc(raw.slice(0, i)) + '<mark>' + esc(raw.slice(i, i + kw.length)) + '</mark>' + esc(raw.slice(i + kw.length));
 }
 
 export function renderSearch() {

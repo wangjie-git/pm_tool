@@ -1,7 +1,7 @@
 /* 想法/价值矩阵 —— 拆分自 ui/app.js（来源行 3110-3208） */
 
 import { invoke } from '../backend.js';
-import { closeModal, openModal } from '../modal.js';
+import { askConfirm, closeModal, openModal } from '../modal.js';
 import { render } from '../render.js';
 import { S, TODAY } from '../state.js';
 import { persistTask } from '../tasks.js';
@@ -17,7 +17,7 @@ export function renderIdeas() {
     return hiV && loE ? 0 : hiV && !loE ? 1 : !hiV && loE ? 2 : 3;
   };
   const quadNames = ['🚀 立即做（高价值 · 低工时）', '🗺 规划做（高价值 · 高工时）', '⚡ 顺手做（低价值 · 低工时）', '🗑 考虑放弃（低价值 · 高工时）'];
-  let h = '<div class="idea-add"><input type="text" id="idea-title" placeholder="记一条想法/需求（领导口头诉求、用户反馈…）" onkeydown="if(event.key===\'Enter\')saveIdea()">'
+  let h = '<div class="idea-add"><input type="text" id="idea-title" placeholder="记一条想法/需求（领导口头诉求、用户反馈…）" onkeydown="if(!event.isComposing&&event.keyCode!==229&&event.key===\'Enter\')saveIdea()">'
     + '<label>价值</label><select id="idea-v">' + [1,2,3,4,5,6,7,8,9,10].map(v => '<option' + (v === 5 ? ' selected' : '') + '>' + v + '</option>').join('') + '</select>'
     + '<label>工时</label><select id="idea-e">' + [1,2,3,4,5,6,7,8,9,10].map(v => '<option' + (v === 5 ? ' selected' : '') + '>' + v + '</option>').join('') + '</select>'
     + '<button class="btn blue" onclick="saveIdea()">' + (editingIdeaId ? '保存修改' : '＋ 记一条') + '</button>'
@@ -45,6 +45,18 @@ export function renderIdeas() {
       + '<button class="btn danger ghost" onclick="deleteIdea(' + i2.id + ')">✕</button></div>').join('') + '</div>';
   }
   box.innerHTML = h;
+  /* 编辑态跨视图残留防护：从其他视图切回需求池时，输入框是重建的空节点——
+   * 必须回填正在编辑的想法，否则按钮显示「保存修改」而输入框为空，回车会覆盖旧想法 */
+  if (editingIdeaId) {
+    const i2 = S.ideas.find(x => x.id === editingIdeaId);
+    if (i2) {
+      $id('idea-title').value = i2.title;
+      $id('idea-v').value = i2.value;
+      $id('idea-e').value = i2.effort;
+    } else {
+      editingIdeaId = 0; /* 编辑中的想法已被删除：退出编辑态 */
+    }
+  }
 }
 export async function saveIdea() {
   const title = $id('idea-title').value.trim();
@@ -71,6 +83,9 @@ export function editIdea(id) {
 }
 export function cancelIdeaEdit() { editingIdeaId = 0; render(); }
 export async function deleteIdea(id) {
+  const i2 = S.ideas.find(x => x.id === id); if (!i2) return;
+  const ok = await askConfirm('删除想法', '删除「' + esc(i2.title) + '」？删除后无法恢复。', true);
+  if (!ok) return;
   try {
     await invoke('delete_idea', { id: id });
     S.ideas = S.ideas.filter(x => x.id !== id);

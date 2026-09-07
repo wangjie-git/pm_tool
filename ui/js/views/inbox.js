@@ -181,9 +181,10 @@ export function parseSmartNl() {
 }
 export async function deleteSmartView(id) {
   const v = smartViewById(id); if (!v) return;
-  const ok = await askConfirm('删除智能视图', '删除「' + v.name + '」？只删视图，不动任务。', false);
+  const ok = await askConfirm('删除智能视图', '删除「' + esc(v.name) + '」？只删视图，不动任务。', false);
   if (!ok) return;
   S.smartViews = S.smartViews.filter(x => x.id !== id);
+  if (S.smartId === id) S.smartId = null; /* 清除指向已删除视图的残留引用 */
   await putJsonMeta('smartViews', S.smartViews);
   S.mode = 'project';
   render();

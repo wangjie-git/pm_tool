@@ -52,7 +52,7 @@ export function mdInline(s) {
     if (!S.attachDir) return '<span class="dim2">📎 图片 ' + name + '</span>';
     return '<img alt="' + alt + '" src="' + attSrc(name) + '">';
   });
-  out = out.replace(/\[\[([^\[\]]+)\]\]/g, (m, t) => '<a class="wikilink" data-w="' + t + '" title="跳转到「' + t + '">' + t + '</a>');
+  out = out.replace(/\[\[([^\[\]]+)\]\]/g, (m, t) => '<a class="wikilink" data-w="' + esc(t) + '" title="跳转到「' + esc(t) + '」">' + esc(t) + '</a>');
   out = out.replace(/`([^`]+)`/g, (m, c) => '<code>' + c + '</code>');
   out = out.replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>');
   out = out.replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<i>$2</i>');

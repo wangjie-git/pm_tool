@@ -227,7 +227,7 @@ export async function pasteNoteImage(e) {
 }
 export function askDelTask(id) {
   const t = getTask(id); if (!t) return;
-  askConfirm('删除事项', '确认删除「' + t.title + '」？删除后进回收站保留 30 天，可随时恢复。', true).then(ok => {
+  askConfirm('删除事项', '确认删除「' + esc(t.title) + '」？删除后进回收站保留 30 天，可随时恢复。', true).then(ok => {
     if (ok) { closeModal('mw-task'); delTaskById(id, true); }
   });
 }

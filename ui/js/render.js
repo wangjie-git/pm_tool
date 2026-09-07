@@ -47,7 +47,7 @@ export function renderView() {
 export function renderSidebar() {
   /* 今日聚焦：跨项目的今日待办总数 */
   const archIds = S.projects.filter(p => p.archived).map(p => p.id);
-  const tCnt = S.tasks.filter(t => archIds.indexOf(t.projectId) < 0 && t.status !== 'done' && t.status !== 'wait' && t.due <= TODAY).length;
+  const tCnt = S.tasks.filter(t => archIds.indexOf(t.projectId) < 0 && t.status !== 'done' && t.status !== 'wait' && t.due && t.due <= TODAY).length;
   const iCnt = S.tasks.filter(t => t.projectId == 0 && t.status === 'todo').length;
   $id('todayNav').innerHTML =
     '<div class="proj today ' + (S.mode === 'today' ? 'on' : '') + '" onclick="openTodayFocus()" title="所有项目的今日到期 / 逾期 / 进行中">'
@@ -221,7 +221,7 @@ export async function renderHeader() {
       : (hasMs || msDismissed ? '' : '<span class="chip2">⚙ 点项目名可设置里程碑倒计时</span>');
 
     const ts = projTasks(p.id);
-    const overdue = ts.filter(t => t.status !== 'done' && t.status !== 'wait' && t.due < TODAY).length;
+    const overdue = ts.filter(t => t.status !== 'done' && t.status !== 'wait' && t.due && t.due < TODAY).length;
     const risks = ts.filter(t => t.risk && t.status !== 'done').length;
     const wk = addDays(TODAY, -6);
     const wkDone = ts.filter(t => t.status === 'done' && t.doneAt && t.doneAt >= wk && t.doneAt <= TODAY).length;

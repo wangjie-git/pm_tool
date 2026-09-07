@@ -597,6 +597,8 @@ select.q-proj {
 .pdot.p1 { background: var(--orange); }
 .pdot.p2 { background: #7b849e; }
 .cal-more { font-size: 10.5px; color: var(--muted); padding: 1px 4px; }
+/* 循环预占计数行：纯文本提示，不可点击（区别于可展开当天的 cal-more） */
+.cal-more.dim { opacity: .55; cursor: default; }
 .cal-legend { margin-top: 12px; display: flex; align-items: center; flex-wrap: wrap; }
 
 /* ---------- 命令面板 ---------- */

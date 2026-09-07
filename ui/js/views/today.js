@@ -30,7 +30,7 @@ export function todayGroups() {
     if (f.risk) ts = ts.filter(t => t.risk);
     if (f.rep) ts = ts.filter(t => t.repeat === f.rep);
     if (f.kw) ts = ts.filter(t => (t.title + ' ' + (t.owner || '') + ' ' + p.name).toLowerCase().indexOf(f.kw) >= 0);
-    const over = ts.filter(t => t.due < TODAY && t.status !== 'doing').sort(cmpTask);
+    const over = ts.filter(t => t.due && t.due < TODAY && t.status !== 'doing').sort(cmpTask);
     const today = ts.filter(t => t.due === TODAY && t.status !== 'doing').sort(cmpTask);
     const doing = ts.filter(t => t.status === 'doing').sort(cmpTask); /* 进行中全部带上，避免漏掉今天到期的 */
     if (over.length || today.length || doing.length) out.push({ p: p, over: over, today: today, doing: doing });
@@ -41,9 +41,7 @@ export function todayGroups() {
 /* 今日三只青蛙（#7 MIT）：置顶展示；空槽压缩为一行引导（A5），已选青蛙横排小卡 */
 export function frogBarHtml() {
   const frogs = S.frogs.ids.map(id => getTask(id)).filter(t => t && t.status !== 'done');
-  let h = '<div class="frog-bar"><div class="frog-head">🐸 今日三件要事（MIT）';
-  h += frogs.length < 3 ? '<span class="frog-hint">先吃掉青蛙，再做别的</span>' : '<span class="frog-hint">先吃掉青蛙，再做别的</span>';
-  h += '</div><div class="frog-list">';
+  let h = '<div class="frog-bar"><div class="frog-head">🐸 今日三件要事（MIT）<span class="frog-hint">先吃掉青蛙，再做别的</span></div><div class="frog-list">';
   h += frogs.map(t =>
     '<div class="frog-item" onclick="openTaskEdit(' + t.id + ')" title="' + esc(projNameOf(t.projectId)) + ' · 点击编辑">'
     + '<b class="fno">' + (S.frogs.ids.indexOf(t.id) + 1) + '</b>'
@@ -104,6 +102,7 @@ export function copyTodayList() {
 /* ---------- 列表视图 ---------- */
 export function dueChipHtml(t) {
   if (t.status === 'done') return '<span class="chip">✔ 完成于 ' + esc(t.doneAt || '') + '</span>';
+  if (!t.due) return '<span class="chip">📆 无日期</span>';
   let cls = '', label = t.due;
   if (t.due < TODAY) { cls = 'due-over'; label = '逾期 ' + t.due; }
   else if (t.due === TODAY) { cls = 'due-today'; label = '今天到期'; }
@@ -227,6 +226,9 @@ export function toggleCardMenu(e, id) {
 export function closeCardMenus() { document.querySelectorAll('.card-menu').forEach(m => { m.hidden = true; }); }
 export async function cardMenuAct(id, act) {
   closeCardMenus();
+  /* 右键菜单复用同一批动作：执行后立即收起，避免菜单悬浮遮挡页面（不 import events.js 避免循环依赖） */
+  const cm = document.getElementById('ctxMenu');
+  if (cm) cm.hidden = true;
   if (act === 'timer') toggleTimer(id);
   else if (act === 'snooze') snoozeTask(id);
   else if (act === 'frog') toggleFrog(id);

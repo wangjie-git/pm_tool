@@ -5,7 +5,7 @@ import { PRI_W, RISK_RED, S, curProject, isOpen, isOverdue, projTasks, riskValue
 export function parseFilter(raw) {
   const f = { kw: '', owner: '', pri: '', risk: false, rep: '' };
   let s = ' ' + raw.trim() + ' ';
-  s = s.replace(/@([^\s!#@]+)/g, (m, o) => { f.owner = o; return ' '; });
+  s = s.replace(/@([^\s!@]+)/g, (m, o) => { f.owner = o; return ' '; });
   s = s.replace(/!(P0|P1|P2)/gi, (m, p) => { f.pri = p.toUpperCase(); return ' '; });
   s = s.replace(/#风险/g, () => { f.risk = true; return ' '; });
   s = s.replace(/#(每日|每天|每周|每月)/g, (m, r) => { f.rep = r === '每周' ? 'weekly' : r === '每月' ? 'monthly' : 'daily'; return ' '; });

@@ -187,6 +187,7 @@ async function hideWin() {
 }
 const inp = document.getElementById('inp');
 inp.addEventListener('keydown', e => {
+  if (e.isComposing || e.keyCode === 229) return; /* 中文 IME 上屏回车不保存，避免截断组字中的输入 */
   if (e.key === 'Enter') { e.preventDefault(); saveTask(); }
   else if (e.key === 'Escape') { e.preventDefault(); hideWin(); }
 });

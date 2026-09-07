@@ -85,7 +85,7 @@ export function renderCalendar() {
     gs.slice(0, items.length > 3 ? 1 : Math.max(0, 3 - items.length)).forEach(t => {
       cells += '<div class="cal-task ghost" title="循环任务预占：' + esc(t.title) + '（' + repeatLabel(t.repeat) + '）—— 到期未完成会自动顺延" onclick="event.stopPropagation();openTaskEdit(' + t.id + ')">🔄 ' + esc(t.title) + '</div>';
     });
-    if (gs.length > 3 - Math.min(items.length, 3) && items.length <= 3) cells += '<div class="cal-more">…还有 ' + (gs.length - Math.max(0, 3 - items.length)) + ' 次预占</div>';
+    if (gs.length > 3 - Math.min(items.length, 3) && items.length <= 3) cells += '<div class="cal-more dim" title="仅展示预占数量，预占到期未完成会自动顺延">…还有 ' + (gs.length - Math.max(0, 3 - items.length)) + ' 次预占</div>';
     const dcnt = items.length + gs.length;
     h += '<div class="cal-cell cal-creatable' + (isToday ? ' today' : '') + '" data-day="' + ds + '">'
       + '<div class="cal-d">' + d + (dcnt ? ' <span class="cal-n">' + dcnt + '</span>' : '') + '</div>'
@@ -103,10 +103,14 @@ export function calNewAt(ds) {
   openTaskEdit(0, { due: ds, startDate: ds });
 }
 
-/* 「还有 N 项」当日浮层：列出当天全部任务，可新建 */
-export function calShowDay(ds, anchor) {
+/* 关闭当日浮层：从浮层打开编辑弹窗时先收起，避免弹窗关闭后浮层残留悬浮 */
+export function calClosePop() {
   const old = document.querySelector('.cal-day-pop');
   if (old) old.remove();
+}
+/* 「还有 N 项」当日浮层：列出当天全部任务，可新建 */
+export function calShowDay(ds, anchor) {
+  calClosePop();
   const p = curProject(); if (!p) return;
   const items = projTasks(p.id).filter(t => t.due === ds).sort(cmpTask);
   const pop = document.createElement('div');
@@ -116,10 +120,10 @@ export function calShowDay(ds, anchor) {
   pop.style.top = Math.min(r.bottom + 6, window.innerHeight - 320) + 'px';
   let h = '<div class="cdp-title">📆 ' + ds + ' · ' + items.length + ' 项</div>';
   h += items.map(t =>
-    '<div class="cal-task' + (t.status === 'done' ? ' done' : '') + ((t.status !== 'done' && t.due < TODAY) ? ' over' : '') + '" onclick="openTaskEdit(' + t.id + ')">'
+    '<div class="cal-task' + (t.status === 'done' ? ' done' : '') + ((t.status !== 'done' && t.due < TODAY) ? ' over' : '') + '" onclick="calClosePop();openTaskEdit(' + t.id + ')">'
     + '<i class="pdot ' + (t.pri === 'P0' ? 'p0' : (t.pri === 'P1' ? 'p1' : 'p2')) + '"></i>' + esc(t.title) + '</div>').join('')
     || '<div class="empty">这一天没有任务</div>';
-  h += '<button class="cdp-add" onclick="calNewAt(\'' + ds + '\')">＋ 新建 ' + ds.slice(5) + ' 的任务</button>';
+  h += '<button class="cdp-add" onclick="calClosePop();calNewAt(\'' + ds + '\')">＋ 新建 ' + ds.slice(5) + ' 的任务</button>';
   pop.innerHTML = h;
   document.body.appendChild(pop);
   setTimeout(() => {
@@ -156,6 +160,15 @@ export function bindCalDrag() {
   });
   document.addEventListener('mousemove', e => {
     if (!cdrag) return;
+    /* 鼠标在窗口外松开过（无 pointer capture，mouseup 不送达）：按钮状态为零时清理残留拖拽态，
+     * 否则悬浮 ghost 会残留、下一次任意 mouseup 会被误当作拖拽结束并改期任务 */
+    if (e.buttons === 0) {
+      if (cdrag.ghost) cdrag.ghost.remove();
+      if (cdrag.srcEl) cdrag.srcEl.classList.remove('drag-src');
+      document.body.classList.remove('dragging-cal');
+      cdrag = null;
+      return;
+    }
     if (!cdrag.started) {
       if (Math.abs(e.clientX - cdrag.startX) < 5 && Math.abs(e.clientY - cdrag.startY) < 5) return;
       cdrag.started = true;
@@ -185,9 +198,9 @@ export function bindCalDrag() {
     if (d.srcEl) d.srcEl.classList.remove('drag-src');
     document.querySelectorAll('.cal-cell.drop-target').forEach(el => el.classList.remove('drop-target'));
     if (!d.started) return;
-    calSuppressClickUntil = Date.now() + 400;
     const cell = calCellAt(e.clientX, e.clientY);
     if (!cell || cell.classList.contains('blank')) return;
+    calSuppressClickUntil = Date.now() + 400; /* 只在有效落点后武装抑制：拖出网格/空白格时 400ms 内不吞正常点击 */
     const ds = cell.getAttribute('data-day');
     const t = getTask(d.id);
     if (!t || !ds || t.due === ds) return;

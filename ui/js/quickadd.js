@@ -179,7 +179,7 @@ export function qTogglePop(kind, btn) {
   pop.hidden = false;
   const r = btn.getBoundingClientRect();
   pop.style.left = Math.min(r.left, window.innerWidth - 300) + 'px';
-  pop.style.top = (r.bottom + 6) + 'px';
+  pop.style.top = Math.min(r.bottom + 6, window.innerHeight - 190) + 'px'; /* 底缘钳制：小窗/靠底部时避免弹出视口外 */
 }
 /* 语法面板的令牌点击助手（挂 window 供内联 onclick 使用） */
 export function qPick(token) { qInsert(token); hideQPop(); }

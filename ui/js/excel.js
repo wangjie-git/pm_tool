@@ -20,6 +20,7 @@ export const XW_FIELDS = [
 ];
 export const XW_STEPS = ['① 选文件', '② 选工作表', '③ 列映射', '④ 预览', '⑤ 导入'];
 export let XW = null;
+let xwSheetSeq = 0; /* 工作表加载序号（xwLoadSheet 竞态防护，见 xwSheetChanged） */
 
 export function openExcelWizard() {
   XW = { step: 1, path: '', fileName: '', sheets: [], sheet: '', headerRow: 0, rows: null,
@@ -130,23 +131,28 @@ export async function xwPickFile() {
       XW.sheet = XW.sheets[0] || '';
     }
   } catch (e) { toastErr('读取文件失败', e); return; }
-  await xwLoadSheet();
+  try {
+    await xwLoadSheet();
+  } catch (e) { toastErr('解析失败', e); return; }
   if (XW.newProjName === '') XW.newProjName = XW.fileName.replace(/\.[^.]+$/, '').replace(/[-_]?计划表?$/, '');
   XW.step = 2;
   renderExcelWizard();
 }
 export async function xwLoadSheet() {
-  try {
-    if (XW._csv) {
-      if (!XW.rows) {
-        const raw = await invoke('read_text_file', { path: XW.path });
-        XW.rows = parseCsvText(raw);
-      }
-    } else {
-      const res = await invoke('xlsx_read', { path: XW.path, sheet: XW.sheet });
-      XW.rows = res.rows || [];
+  /* 失败直接上抛给调用方（openExcelWizard 中止流程 / xwSheetChanged 回滚旧表），
+   * 不能在这里吞错 return，否则调用方的 .catch 永远不执行（回滚变死代码） */
+  const seq = ++xwSheetSeq; /* 加载序号：快速切表/重选文件时后发请求覆盖先发，防止旧表数据覆盖新表 */
+  if (XW._csv) {
+    if (!XW.rows) {
+      const raw = await invoke('read_text_file', { path: XW.path });
+      if (seq !== xwSheetSeq) return; /* 期间已切到别的表：本次结果作废 */
+      XW.rows = parseCsvText(raw);
     }
-  } catch (e) { toastErr('解析失败', e); return; }
+  } else {
+    const res = await invoke('xlsx_read', { path: XW.path, sheet: XW.sheet });
+    if (seq !== xwSheetSeq) return; /* 期间已切到别的表：本次结果作废 */
+    XW.rows = res.rows || [];
+  }
   /* 表头行自动猜测：首个含「任务/事项/工作内容/名称」类关键词的非空行 */
   const choices = [];
   for (let r = 0; r < Math.min(XW.rows.length, 15); r++) {
@@ -163,9 +169,20 @@ export async function xwLoadSheet() {
   xwAutoMap();
 }
 export function xwSheetChanged() {
-  XW.sheet = $id('xw-sheet').value;
+  const ns = $id('xw-sheet').value;
+  if (ns === XW.sheet) return;
+  const oldSheet = XW.sheet, oldRows = XW.rows;
+  XW.sheet = ns;
   XW.rows = null;
-  xwLoadSheet().then(() => renderExcelWizard());
+  xwLoadSheet().then(() => {
+    /* 竞态防护在 xwLoadSheet 内部（序号校验）；此处只负责渲染最新状态 */
+    renderExcelWizard();
+  }).catch(e => {
+    /* 换表失败：回退到旧表状态并重渲染，避免停留在“旧内容+可点下一步”的中间态 */
+    toastErr('读取工作表失败', e);
+    XW.sheet = oldSheet; XW.rows = oldRows;
+    renderExcelWizard();
+  });
 }
 export function xwHeaderChanged() {
   XW._rowChoiceIdx = +$id('xw-hrow').value;
@@ -304,61 +321,72 @@ export function xwBuildImportRows() {
   return rows;
 }
 export async function xwImport() {
+  if (!XW || XW._importing) return; /* 导入进行中：忽略重复点击，防止同一批任务重复入库 */
   const built = XW.built || xwBuildImportRows();
   const good = built.filter(r => !r.err);
   if (!good.length) { toast('没有可导入的行', 'err'); return; }
-  let pid = 0, pname = '';
+  XW._importing = true;
+  const btn = $id('xw-import');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ 导入中…'; }
   try {
-    if (XW.sample) {
-      let p = S.projects.find(x => x.name === '示例项目' && !x.archived);
-      if (!p) p = await persistProject({ id: 0, name: '示例项目', archived: false, createdAt: TODAY, settingsJson: '{}' });
-      pid = p.id; pname = p.name;
-    } else if (XW.targetMode === 'new') {
-      const nm = ($id('xw-newname') && $id('xw-newname').value.trim()) || XW.newProjName || XW.fileName.replace(/\.[^.]+$/, '');
-      const p = await persistProject({ id: 0, name: nm, archived: false, createdAt: TODAY, settingsJson: JSON.stringify({ report: nm + ' 进度日报', milestones: [{ label: '', date: '' }, { label: '', date: '' }, { label: '', date: '' }] }) });
-      pid = p.id; pname = p.name;
-    } else {
-      pid = XW.targetPid || (+($id('xw-targetpid') && $id('xw-targetpid').value) || 0);
-      pname = projNameOf(pid);
-      if (!pid) { toast('请选择要并入的项目', 'err'); return; }
-    }
-  } catch (e) { toastErr('准备目标项目失败', e); return; }
-  const parentIds = {};
-  let ok = 0, skip = 0;
-  const skips = [];
-  for (const r of good) {
+    let pid = 0, pname = '';
     try {
-      let parentId = 0;
-      /* isStage 行也可能是别的阶段的子阶段（3 级 WBS），只要有已入库的父标题就挂上去 */
-      if (r.parentTitle && parentIds[r.parentTitle] != null) {
-        parentId = parentIds[r.parentTitle];
+      if (XW.sample) {
+        let p = S.projects.find(x => x.name === '示例项目' && !x.archived);
+        if (!p) p = await persistProject({ id: 0, name: '示例项目', archived: false, createdAt: TODAY, settingsJson: '{}' });
+        pid = p.id; pname = p.name;
+      } else if (XW.targetMode === 'new') {
+        const nm = ($id('xw-newname') && $id('xw-newname').value.trim()) || XW.newProjName || XW.fileName.replace(/\.[^.]+$/, '');
+        const p = await persistProject({ id: 0, name: nm, archived: false, createdAt: TODAY, settingsJson: JSON.stringify({ report: nm + ' 进度日报', milestones: [{ label: '', date: '' }, { label: '', date: '' }, { label: '', date: '' }] }) });
+        pid = p.id; pname = p.name;
+      } else {
+        pid = XW.targetPid || (+($id('xw-targetpid') && $id('xw-targetpid').value) || 0);
+        pname = projNameOf(pid);
+        if (!pid) { toast('请选择要并入的项目', 'err'); return; }
       }
-      const base = {
-        id: 0, projectId: pid, title: r.title, due: r.due || TODAY, owner: r.owner || '我方',
-        pri: r.pri || 'P1', status: r.status === 'done' ? 'done' : r.status === 'doing' ? 'doing' : r.status === 'wait' ? 'wait' : 'todo',
-        doneAt: r.status === 'done' ? (r.due || TODAY) : '', risk: false, repeat: '',
-        note: r.note || '', createdAt: TODAY, sortOrder: 0, checklistJson: '[]',
-        startDate: r.startDate || '', parentId: parentId
-      };
-      const saved = await persistTask(base);
-      if (r.isStage) parentIds[r.title] = saved.id;
-      ok++;
-    } catch (e) {
-      skip++;
-      skips.push('第 ' + (r.srcIdx + 1) + ' 行「' + r.title.slice(0, 14) + '」：' + (e && e.message || e));
+    } catch (e) { toastErr('准备目标项目失败', e); return; }
+    const parentIds = {};
+    let ok = 0, skip = 0, done = 0;
+    const skips = [];
+    for (const r of good) {
+      try {
+        let parentId = 0;
+        /* isStage 行也可能是别的阶段的子阶段（3 级 WBS），只要有已入库的父标题就挂上去 */
+        if (r.parentTitle && parentIds[r.parentTitle] != null) {
+          parentId = parentIds[r.parentTitle];
+        }
+        const base = {
+          id: 0, projectId: pid, title: r.title, due: r.due || TODAY, owner: r.owner || '我方',
+          pri: r.pri || 'P1', status: r.status === 'done' ? 'done' : r.status === 'doing' ? 'doing' : r.status === 'wait' ? 'wait' : 'todo',
+          doneAt: r.status === 'done' ? (r.due || TODAY) : '', risk: false, repeat: '',
+          note: r.note || '', createdAt: TODAY, sortOrder: 0, checklistJson: '[]',
+          startDate: r.startDate || '', parentId: parentId
+        };
+        const saved = await persistTask(base);
+        if (r.isStage) parentIds[r.title] = saved.id;
+        ok++;
+      } catch (e) {
+        skip++;
+        skips.push('第 ' + (r.srcIdx + 1) + ' 行「' + r.title.slice(0, 14) + '」：' + (e && e.message || e));
+      }
+      done++;
+      if (done % 10 === 0 && typeof window._xwStatus === 'function') window._xwStatus('⏳ 已导入 ' + done + '/' + good.length + ' 条…');
     }
+    /* 父任务修正：persistTask 保存后回填 parentId（同名阶段仅第一个父任务生效） */
+    await refreshAll();
+    const made = Object.keys(parentIds).length;
+    $id('xw-body').innerHTML = '<div class="chips-line"><span class="chip2 good">✅ 成功导入 ' + ok + ' 条到「' + esc(pname) + '」</span>'
+      + (made ? '<span class="chip2 cd">📂 阶段父任务 ' + made + ' 个（进度上卷自动生效）</span>' : '')
+      + (skip ? '<span class="chip2 bad">跳过 ' + skip + ' 条</span>' : '') + '</div>'
+      + (skips.length ? '<div class="xw-preview">' + skips.map(s => '<div class="dn-row">⛔ ' + esc(s) + '</div>').join('') + '</div>' : '')
+      + '<div class="hint" style="margin-top:10px;">可在「📊 统计」看交付预测（哪天做完）、「⏱ 时间线」看计划条。</div>';
+    $id('xw-import').hidden = true;
+    $id('xw-next').hidden = true;
+    toast('📥 导入完成：成功 ' + ok + ' 条' + (skip ? '，跳过 ' + skip + ' 条' : ''));
+  } finally {
+    XW._importing = false;
+    if (btn) { btn.disabled = false; btn.textContent = '📥 开始导入'; }
   }
-  /* 父任务修正：persistTask 保存后回填 parentId（同名阶段仅第一个父任务生效） */
-  await refreshAll();
-  const made = Object.keys(parentIds).length;
-  $id('xw-body').innerHTML = '<div class="chips-line"><span class="chip2 good">✅ 成功导入 ' + ok + ' 条到「' + esc(pname) + '」</span>'
-    + (made ? '<span class="chip2 cd">📂 阶段父任务 ' + made + ' 个（进度上卷自动生效）</span>' : '')
-    + (skip ? '<span class="chip2 bad">跳过 ' + skip + ' 条</span>' : '') + '</div>'
-    + (skips.length ? '<div class="xw-preview">' + skips.map(s => '<div class="dn-row">⛔ ' + esc(s) + '</div>').join('') + '</div>' : '')
-    + '<div class="hint" style="margin-top:10px;">可在「📊 统计」看交付预测（哪天做完）、「⏱ 时间线」看计划条。</div>';
-  $id('xw-import').hidden = true;
-  $id('xw-next').hidden = true;
-  toast('📥 导入完成：成功 ' + ok + ' 条' + (skip ? '，跳过 ' + skip + ' 条' : ''));
 }
 export function xwMatrixTable(rows, maxRows, headerRow) {
   if (!rows || !rows.length) return '<div class="empty">（空表）</div>';

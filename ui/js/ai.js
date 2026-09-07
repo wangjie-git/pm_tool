@@ -2,9 +2,10 @@
 
 import { getJsonMeta, invoke } from './backend.js';
 import { askConfirm, closeModal, openModal } from './modal.js';
-import { editChecklist, renderChecklistEditor } from './modals/task-edit.js';
+import { editChecklist, editingTaskId, renderChecklistEditor } from './modals/task-edit.js';
 import { render } from './render.js';
 import { openSettings } from './settings.js';
+import { reportOpenSeq } from './report.js';
 import { S, TODAY, curProject, projNameOf } from './state.js';
 import { persistTask } from './tasks.js';
 import { $id, esc, toast, toastErr } from './utils.js';
@@ -81,7 +82,7 @@ export function aiStashFields() {
 }
 export function aiRenderProfiles() {
   $id('st-ai-profiles').innerHTML = aiProfiles.map(p =>
-    '<div class="ai-prof' + (p.id === aiSelId ? ' sel' : '') + '" onclick="aiPickProfile(\'' + p.id + '\')">'
+    '<div class="ai-prof' + (p.id === aiSelId ? ' sel' : '') + '" onclick="aiPickProfile(\'' + esc(p.id).replace(/[\\'\r\n]/g, '') + '\')">'
     + '<span class="ai-dot' + (p.id === aiActiveId ? ' on' : '') + '"></span>'
     + '<span class="ai-pn">' + esc(p.name) + (p.id === aiActiveId ? '<i class="ai-cur">当前</i>' : '') + '</span>'
     + '<span class="ai-pm">' + esc(p.model || '未设模型') + '</span></div>'
@@ -90,9 +91,10 @@ export function aiRenderProfiles() {
 export function aiPickProfile(id) {
   if (id === aiSelId) return;
   aiStashFields();
+  const p = aiProfiles.find(x => x.id === id);
+  if (!p) return; /* 非法/被转义截断的 id：忽略，避免崩溃与误导性切换 */
   aiSelId = id; aiActiveId = id;
   aiRenderProfiles();
-  const p = aiProfiles.find(x => x.id === id);
   aiFillSettings(p);
   aiStatus('已切换到「' + p.name + '」，点底部「保存」生效');
 }
@@ -225,15 +227,17 @@ export function extractJsonArray(text) {
 export async function aiPolishReport() {
   const btn = $id('r-ai');
   const orig = btn.textContent;
-  const cfg = await ensureAiCfg(); if (!cfg) return;
-  const before = $id('r-area').value;
-  btn.textContent = '⏳ 润色中…'; btn.disabled = true;
+  btn.textContent = '⏳ 润色中…'; btn.disabled = true; /* 在首个 await 前禁用：快速双击不会并发两次 AI 请求 */
   try {
+    const cfg = await ensureAiCfg(); if (!cfg) return;
+    const seq = reportOpenSeq;
+    const before = $id('r-area').value;
     const out = await invoke('ai_chat', { cfg: JSON.stringify(cfg), system: AI_POLISH_SYSTEM, user: before });
     if (out === before) { toast('AI 看过了：已足够好，未做改动', 'info'); return; }
+    if (seq !== reportOpenSeq) { toast('报告已重新生成，放弃旧润色结果', 'info'); return; } /* 润色期间另开了新报告：不得覆盖新预览 */
     $id('r-area').value = out;
     toast('✨ AI 润色完成（' + (cfg.name || cfg.preset) + ' · ' + cfg.model + '）', 'ok',
-      { label: '撤销', onClick: () => { $id('r-area').value = before; } });
+      { label: '撤销', onClick: () => { if (reportOpenSeq === seq) $id('r-area').value = before; } });
   } catch (e) {
     toastErr('AI 润色失败', e);
   } finally {
@@ -249,6 +253,8 @@ export const AI_PARSE_SYSTEM = '你是项目管理助手，从用户给的原始
   + '{"title":"一句话可执行的任务标题","due":"YYYY-MM-DD 或空","owner":"人名或空","pri":"P0|P1|P2，不明确给P1","risk":true或false,"note":"一句话补充背景或卡点，可空"}。'
   + '规则：明天/下周五/月底等相对时间按 {today} 换算成具体日期，无法判断就留空；owner 只取原文明确提到的人名；原文提到卡住/延期/风险/依赖则 risk=true；同一件事只出一条；没有任务就输出 []。';
 export let atParsed = [];
+let atImporting = false; /* 批量入库重入防护：循环 persistTask 期间忽略重复点击 */
+let atOpenSeq = 0; /* AI 转任务弹窗打开序号：解析结果只写回本次会话，弹窗重置后旧结果作废 */
 export function atRowHtml(it, i) {
   return '<div class="at-row">'
     + '<input type="checkbox" class="at-ck" checked data-i="' + i + '" title="勾选后才会添加">'
@@ -261,6 +267,7 @@ export function atRowHtml(it, i) {
 }
 export async function openAiTask() {
   atParsed = [];
+  atOpenSeq++; /* 使上一轮未完成的解析结果作废 */
   $id('at-input').value = '';
   const res = $id('at-results');
   res.hidden = true; res.innerHTML = '';
@@ -278,18 +285,20 @@ export async function openAiTask() {
   setTimeout(() => $id('at-input').focus(), 20);
 }
 export async function aiParseTasks() {
-  const text = $id('at-input').value.trim();
-  if (!text) { $id('at-status').textContent = '先粘贴原始文字（会议记录 / 群聊 / 邮件都行）'; return; }
-  const cfg = await ensureAiCfg(); if (!cfg) return;
   const btn = $id('at-parse');
-  btn.disabled = true; btn.textContent = '⏳ 解析中…';
+  btn.disabled = true; btn.textContent = '⏳ 解析中…'; /* 在首个 await 前禁用：快速双击不会并发两次 AI 请求 */
   $id('at-status').textContent = 'AI 正在拆解任务（一般 3-10 秒）…';
   try {
+    const text = $id('at-input').value.trim();
+    if (!text) { $id('at-status').textContent = '先粘贴原始文字（会议记录 / 群聊 / 邮件都行）'; return; }
+    const cfg = await ensureAiCfg(); if (!cfg) return;
+    const seq = atOpenSeq;
     const out = await invoke('ai_chat', {
       cfg: JSON.stringify(cfg),
       system: AI_PARSE_SYSTEM.split('{today}').join(TODAY),
       user: text
     });
+    if (seq !== atOpenSeq) { btn.disabled = false; btn.textContent = '🔍 AI 解析'; toast('弹窗已重置，放弃本次解析结果', 'info'); return; } /* 解析期间弹窗被重开 */
     atParsed = extractJsonArray(out)
       .map(x => x && typeof x === 'object' ? x : { title: x })
       .map(x => ({
@@ -317,6 +326,7 @@ export async function aiParseTasks() {
   }
 }
 export async function aiImportParsed() {
+  if (atImporting) return;
   const rows = Array.from($id('at-results').querySelectorAll('.at-row'));
   const pid = +$id('at-proj').value || 0;
   const picked = [];
@@ -336,6 +346,9 @@ export async function aiImportParsed() {
     });
   });
   if (!picked.length) { $id('at-status').textContent = '至少勾选一条要添加的任务'; return; }
+  atImporting = true;
+  const btn = $id('at-import');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ 添加中…'; }
   try {
     for (const t of picked) await persistTask(t);
     closeModal('mw-aitask');
@@ -343,22 +356,28 @@ export async function aiImportParsed() {
     toast('🤖 AI 已添加 ' + picked.length + ' 条任务到' + where + (pid === 0 ? '，记得去收件箱分拣' : ''));
     render();
   } catch (e) { toastErr('添加失败', e); }
+  finally {
+    atImporting = false;
+    if (btn) { btn.disabled = false; btn.textContent = '✅ 添加所选（' + picked.length + '）'; }
+  }
 }
 
 /* AI 生成检查清单：任务拆解草稿（进编辑器，可改可删后才随任务保存） */
 export async function aiGenChecklist() {
   const title = $id('m-title').value.trim();
   if (!title) { toast('先填写任务标题，AI 才能生成清单', 'err'); return; }
-  const cfg = await ensureAiCfg(); if (!cfg) return;
   const btn = $id('m-cl-ai');
-  btn.disabled = true; btn.textContent = '⏳…';
+  btn.disabled = true; btn.textContent = '⏳…'; /* 在首个 await 前禁用：快速双击不会并发两次 AI 请求 */
   try {
+    const cfg = await ensureAiCfg(); if (!cfg) return;
+    const me = editingTaskId; /* 生成期间若编辑弹窗已关闭/切换到别的任务，结果不得写入新任务的清单 */
     const note = $id('m-note').value.trim();
     const out = await invoke('ai_chat', {
       cfg: JSON.stringify(cfg),
       system: '你是资深项目经理。为任务生成检查清单：3-6 条，每条一句话、可验证、按执行顺序，覆盖关键风险点与验收标准。只输出 JSON 数组如 ["条目1","条目2"]，不要解释、不要代码块。',
       user: '任务标题：' + title + (note ? '\n任务备注：' + note : '')
     });
+    if (editingTaskId !== me || $id('mw-task').hidden) { toast('任务已切换或弹窗已关闭，放弃清单结果', 'info'); return; }
     const items = extractJsonArray(out)
       .map(x => String(x && typeof x === 'object' ? (x.text || x.title || '') : x).trim())
       .filter(Boolean)

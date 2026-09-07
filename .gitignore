@@ -18,6 +18,7 @@ tools/hook_received.jsonl
 *.bak-*
 backup_*.zip
 *-交付.zip
+OpenSquilla工具使用手册.docx
 .opensquilla/
 
 # Node / 前端

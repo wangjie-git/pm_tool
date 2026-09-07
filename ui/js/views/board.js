@@ -35,8 +35,8 @@ export function renderList() {
   ts.forEach(t => {
     if (t.status === 'done') { g.done.push(t); return; }
     if (t.status === 'wait') { g.wait.push(t); return; }
-    if (t.due <= TODAY) g.today.push(t);
-    else if (t.due <= weekEnd) g.week.push(t);
+    if (t.due && t.due <= TODAY) g.today.push(t);
+    else if (t.due && t.due <= weekEnd) g.week.push(t);
     else g.later.push(t);
   });
   const cmp = listSortCmp;
@@ -85,6 +85,15 @@ export function bindListDrag() {
   });
   document.addEventListener('mousemove', e => {
     if (!ldrag) return;
+    /* 鼠标在窗口外松开过（mouseup 不送达）：按钮已抬起则清理残留拖拽态，
+     * 避免悬浮高亮残留、下一次 mouseup 被误当作落点 */
+    if (e.buttons === 0) {
+      const d = ldrag; ldrag = null;
+      document.body.classList.remove('dragging-card');
+      if (d.srcEl) d.srcEl.classList.remove('drag-src-list');
+      document.querySelectorAll('.card.list-drop-before, .card.list-drop-after').forEach(el => el.classList.remove('list-drop-before', 'list-drop-after'));
+      return;
+    }
     if (!ldrag.started) {
       if (Math.abs(e.clientX - ldrag.startX) < 5 && Math.abs(e.clientY - ldrag.startY) < 5) return;
       ldrag.started = true;
@@ -200,6 +209,14 @@ export function bindKanbanDrag() {
   });
   document.addEventListener('mousemove', e => {
     if (!kdrag) return;
+    /* 鼠标在窗口外松开过（无 pointer capture，mouseup 不送达）：按钮已抬起则清理残留拖拽态 */
+    if (e.buttons === 0) {
+      if (kdrag.ghost) kdrag.ghost.remove();
+      if (kdrag.srcEl) kdrag.srcEl.classList.remove('drag-src');
+      document.body.classList.remove('dragging-card');
+      kdrag = null;
+      return;
+    }
     if (!kdrag.started) {
       if (Math.abs(e.clientX - kdrag.startX) < 5 && Math.abs(e.clientY - kdrag.startY) < 5) return;
       startKanbanGhost(e);

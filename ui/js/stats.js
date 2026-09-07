@@ -120,7 +120,7 @@ export async function renderStats() {
   const open = ts.filter(t => t.status !== 'done');
   const done = ts.filter(t => t.status === 'done');
   const doneInRange = from ? done.filter(t => t.doneAt && t.doneAt >= from) : done;
-  const overdue = open.filter(t => t.status !== 'wait' && t.due < TODAY).length;
+  const overdue = open.filter(t => t.status !== 'wait' && t.due && t.due < TODAY).length;
   const risks = open.filter(t => t.risk).length;
   const highRisks = open.filter(t => riskValue(t) >= RISK_RED).length;
   const rate = ts.length ? Math.round(done.length / ts.length * 100) : 0;
@@ -165,7 +165,7 @@ export async function renderStats() {
   days.forEach(x => {
     h += '<div class="bar-col"><span class="bv">' + (x.n || '') + '</span>'
       + '<div class="bar" style="height:' + Math.max(3, Math.round(x.n / maxN * 100)) + '%"></div>'
-      + '<span class="bl">' + (S.statsRange === 'all' ? x.d.slice(5) : x.d.slice(5)) + '</span></div>';
+      + '<span class="bl">' + x.d.slice(5) + '</span></div>';
   });
   h += '</div></div>';
 
@@ -214,7 +214,7 @@ export async function renderStats() {
   });
   const avgCyc = cycDays.length ? Math.round(cycDays.reduce((s, x) => s + x, 0) / cycDays.length * 10) / 10 : null;
   const openActive = open.filter(t => t.status !== 'wait');
-  const overRate = openActive.length ? Math.round(openActive.filter(t => t.due < TODAY).length / openActive.length * 100) : 0;
+  const overRate = openActive.length ? Math.round(openActive.filter(t => t.due && t.due < TODAY).length / openActive.length * 100) : 0;
   h += '<div class="stat-panel"><h3>⏱ 周期统计（Cycle Time，参考 Linear / Azure DevOps）</h3><div>'
     + '<span class="chip2 cd">平均处理时长：' + (avgCyc != null ? avgCyc + ' 天（' + cycDays.length + ' 条有开始记录）' : '暂无数据：把任务切到「进行中」开始积累') + '</span>'
     + '<span class="chip2 ' + (overRate >= 30 ? 'bad' : '') + '">未完成任务逾期率：' + overRate + '%</span>'
@@ -223,7 +223,7 @@ export async function renderStats() {
   for (let i = 3; i >= 0; i--) {
     const ws = addDays(TODAY, -(i * 7 + 6)), we = addDays(TODAY, -i * 7);
     const wc = done.filter(t => t.doneAt && t.doneAt >= ws && t.doneAt <= we);
-    const wover = wc.filter(t => t.due < t.doneAt).length;
+    const wover = wc.filter(t => t.due && t.due < t.doneAt).length;
     weeks.push({ label: ws.slice(5) + '~' + we.slice(5), n: wc.length, pct: wc.length ? Math.round(wover / wc.length * 100) : null });
   }
   h += '<div class="bars small">' + weeks.map(w2 =>
@@ -328,7 +328,7 @@ export async function exportStatsPng() {
   const done = ts.filter(t => t.status === 'done');
   const open = ts.filter(t => t.status !== 'done');
   const doneInRange = from ? done.filter(t => t.doneAt && t.doneAt >= from) : done;
-  const overdue = open.filter(t => t.status !== 'wait' && t.due < TODAY).length;
+  const overdue = open.filter(t => t.status !== 'wait' && t.due && t.due < TODAY).length;
   const rangeLabel = (STAT_RANGES.find(r => r[0] === S.statsRange) || STAT_RANGES[0])[1];
   const W = 900;
   const rows = [];
@@ -414,7 +414,8 @@ export function forecastHtml(fc, openCnt) {
 }
 export async function runForecast() {
   const p = curProject(); if (!p) return;
-  const n = Math.max(1, +$id('fc-remaining').value || 1);
+  const inp = $id('fc-remaining');
+  const n = Math.max(1, +(inp ? inp.value : 1) || 1);
   const fc = monteCarloForecast(p.id, n);
   const box = $id('fc-result');
   if (box) box.innerHTML = forecastHtml(fc, n);

@@ -19,30 +19,32 @@ export async function openNewProject() {
 export async function createProjectFromModal() {
   const name = $id('np-name').value.trim();
   if (!name) { toast('项目名称不能为空', 'err'); return; }
-  const tplId = +$id('np-tpl').value || 0;
-  const tpls = await getJsonMeta('templates', []);
-  const tpl = tpls.find(t => t.id === tplId);
-  const p = await persistProject({
-    id: 0, name: name, archived: false, createdAt: TODAY,
-    settingsJson: JSON.stringify({ report: name + ' 进度日报', milestones: [{ label: '', date: '' }, { label: '', date: '' }, { label: '', date: '' }] })
-  });
-  let n = 0;
-  if (tpl && Array.isArray(tpl.tasks)) {
-    for (const tt of tpl.tasks) {
-      await persistTask({
-        id: 0, projectId: p.id, title: tt.title, due: TODAY, owner: tt.owner || '我方', pri: tt.pri || 'P1',
-        status: 'todo', doneAt: '', risk: false, repeat: tt.repeat || '', note: tt.note || '',
-        createdAt: TODAY, sortOrder: 0, checklistJson: tt.checklistJson || '[]'
-      });
-      n++;
+  try {
+    const tplId = +$id('np-tpl').value || 0;
+    const tpls = await getJsonMeta('templates', []);
+    const tpl = tpls.find(t => t.id === tplId);
+    const p = await persistProject({
+      id: 0, name: name, archived: false, createdAt: TODAY,
+      settingsJson: JSON.stringify({ report: name + ' 进度日报', milestones: [{ label: '', date: '' }, { label: '', date: '' }, { label: '', date: '' }] })
+    });
+    let n = 0;
+    if (tpl && Array.isArray(tpl.tasks)) {
+      for (const tt of tpl.tasks) {
+        await persistTask({
+          id: 0, projectId: p.id, title: tt.title, due: TODAY, owner: tt.owner || '我方', pri: tt.pri || 'P1',
+          status: 'todo', doneAt: '', risk: false, repeat: tt.repeat || '', note: tt.note || '',
+          createdAt: TODAY, sortOrder: 0, checklistJson: tt.checklistJson || '[]'
+        });
+        n++;
+      }
     }
-  }
-  S.cur = '' + p.id;
-  await invoke('set_meta', { key: 'currentId', value: S.cur }).catch(() => {});
-  closeModal('mw-newproj');
-  S.mode = 'project';
-  render();
-  toast('项目「' + p.name + '」已创建' + (n ? '，已从模板带入 ' + n + ' 条任务（截止日默认今天，可自行调整）' : ''));
+    S.cur = '' + p.id;
+    await invoke('set_meta', { key: 'currentId', value: S.cur }).catch(() => {});
+    closeModal('mw-newproj');
+    S.mode = 'project';
+    render();
+    toast('项目「' + p.name + '」已创建' + (n ? '，已从模板带入 ' + n + ' 条任务（截止日默认今天，可自行调整）' : ''));
+  } catch (e) { toastErr('创建项目失败', e); }
 }
 export async function deleteTemplateFromModal() {
   const tplId = +$id('np-tpl').value || 0;
@@ -50,10 +52,12 @@ export async function deleteTemplateFromModal() {
   const tpls = await getJsonMeta('templates', []);
   const tpl = tpls.find(t => t.id === tplId);
   if (!tpl) return;
-  const ok = await askConfirm('删除模板', '删除模板「' + tpl.name + '」？不影响已有项目。', true);
+  const ok = await askConfirm('删除模板', '删除模板「' + esc(tpl.name) + '」？不影响已有项目。', true);
   if (!ok) return;
   await putJsonMeta('templates', tpls.filter(t => t.id !== tplId));
+  const keepName = $id('np-name').value; /* 重开列表但保留用户已输入的项目名，避免白打一遍 */
   await openNewProject();
+  $id('np-name').value = keepName;
   toast('模板已删除');
 }
 

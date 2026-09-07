@@ -8,9 +8,10 @@ import { persistTask } from '../tasks.js';
 import { $id, esc, toast, toastErr } from '../utils.js';
 
 export function contactDueDays(c) {
-  /* 距下次跟进还剩几天：负数 = 已逾期 N 天 */
+  /* 距下次跟进还剩几天：负数 = 已逾期 N 天；从未沟通过返回 -999（视为最优先跟进） */
   if (!c.lastContact) return -999;
-  return (c.followupDays || 14) - Math.round((new Date(TODAY) - new Date(c.lastContact)) / 86400000);
+  const fd = (c.followupDays != null && c.followupDays > 0) ? c.followupDays : 14;
+  return fd - Math.round((new Date(TODAY) - new Date(c.lastContact)) / 86400000);
 }
 export function renderContacts() {
   const box = $id('viewContacts');
@@ -26,16 +27,18 @@ export function renderContacts() {
   h += '<div class="riskreg"><table><thead><tr><th>姓名</th><th>组织 / 角色</th><th>标签</th><th>关联项目</th><th>上次沟通</th><th>周期</th><th>跟进状态</th><th>操作</th></tr></thead><tbody>';
   list.forEach(c => {
     const due = contactDueDays(c);
-    const dueChip = due > 3 ? '<span class="dim">还有 ' + due + ' 天</span>'
+    const hasLc = !!c.lastContact; /* -999 只出现在从未沟通过：不显示成「逾期 999 天」 */
+    const dueChip = !hasLc ? '<span class="chip">🆕 待首次跟进</span>'
+      : due > 3 ? '<span class="dim">还有 ' + due + ' 天</span>'
       : due >= 0 ? '<span class="chip due-today">今天该跟进</span>'
       : '<span class="chip due-over">逾期 ' + (-due) + ' 天</span>';
-    h += '<tr class="' + (due < 0 ? 'bad' : due <= 3 ? 'warn' : '') + '">'
+    h += '<tr class="' + (hasLc && due < 0 ? 'bad' : hasLc && due <= 3 ? 'warn' : '') + '">'
       + '<td class="rt">' + esc(c.name) + '</td>'
       + '<td>' + esc(c.org || '—') + '</td>'
       + '<td>' + esc(c.tags || '—') + '</td>'
       + '<td>' + esc(c.projects || '—') + '</td>'
       + '<td>' + esc(c.lastContact || '—') + '</td>'
-      + '<td>' + (c.followupDays || 14) + ' 天</td>'
+      + '<td>' + (c.followupDays != null ? c.followupDays : 14) + ' 天</td>'
       + '<td>' + dueChip + '</td>'
       + '<td><div style="display:flex;gap:5px;">'
       + '<button class="btn teal" style="padding:3px 9px;font-size:11.5px;" onclick="logContactInteraction(' + c.id + ')">✅ 今天沟通过了</button>'
@@ -55,7 +58,7 @@ export function openContactModal(id) {
   $id('ct-tags').value = c ? c.tags : '';
   $id('ct-projects').value = c ? c.projects : '';
   $id('ct-last').value = c ? (c.lastContact || TODAY) : TODAY;
-  $id('ct-days').value = c ? (c.followupDays || 14) : 14;
+  $id('ct-days').value = c ? (c.followupDays != null ? c.followupDays : 14) : 14;
   $id('ct-note').value = c ? c.note : '';
   $id('ct-del').hidden = !c;
   openModal('mw-contact');
@@ -68,7 +71,8 @@ export async function saveContactModal() {
     id: +$id('ct-id').value || 0, name: name, org: $id('ct-org').value.trim(),
     tags: $id('ct-tags').value.trim(), projects: $id('ct-projects').value.trim(),
     note: $id('ct-note').value.trim(), lastContact: $id('ct-last').value || TODAY,
-    followupDays: +$id('ct-days').value || 14, createdAt: ''
+    const fv = +$id('ct-days').value; /* 0/空/NaN 归一：0→1（后端钳制为每天），非法→14 */
+  followupDays: Math.min(365, Math.max(1, Number.isFinite(fv) ? Math.round(fv) : 14)), createdAt: ''
   };
   try {
     const saved = await invoke('upsert_contact', { c: c });
@@ -82,7 +86,7 @@ export async function saveContactModal() {
 }
 export async function deleteContactFlow(id) {
   const c = S.contacts.find(x => x.id == id); if (!c) return;
-  const ok = await askConfirm('删除干系人', '删除「' + c.name + '」的档案？已生成的跟进任务不受影响。', true);
+  const ok = await askConfirm('删除干系人', '删除「' + esc(c.name) + '」的档案？已生成的跟进任务不受影响。', true);
   if (!ok) return;
   try {
     await invoke('delete_contact', { id: id });
@@ -98,7 +102,7 @@ export async function logContactInteraction(id) {
     const i = S.contacts.findIndex(x => x.id == saved.id);
     if (i >= 0) S.contacts[i] = saved;
     render();
-    toast('已记录今天与「' + c.name + '」的沟通，' + (c.followupDays || 14) + ' 天后会提醒跟进');
+    toast('已记录今天与「' + c.name + '」的沟通，' + (c.followupDays != null ? c.followupDays : 14) + ' 天后会提醒跟进');
   } catch (e) { toastErr('记录失败', e); }
 }
 /* 到期干系人 → 自动生成「跟进：某人」任务（幂等：按标记 👤跟进:id 去重） */
@@ -119,7 +123,7 @@ export async function generateFollowupTasks() {
       await persistTask({
         id: 0, projectId: pid, title: '跟进：' + c.name + (c.org ? '（' + c.org + '）' : ''),
         due: TODAY, owner: '我方', pri: 'P1', status: 'todo', doneAt: '', risk: false, repeat: '',
-        note: '干系人跟进 · 周期 ' + (c.followupDays || 14) + ' 天 · 上次沟通 ' + (c.lastContact || '无记录') + ' ' + marker,
+        note: '干系人跟进 · 周期 ' + (c.followupDays != null ? c.followupDays : 14) + ' 天 · 上次沟通 ' + (c.lastContact || '无记录') + ' ' + marker,
         createdAt: TODAY, sortOrder: 0, checklistJson: '[]'
       });
       created++;

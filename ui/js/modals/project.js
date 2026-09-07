@@ -5,7 +5,7 @@ import { askConfirm, askPrompt, closeModal, openModal } from '../modal.js';
 import { render } from '../render.js';
 import { S, curProject, getTask, parseSettings, projTasks } from '../state.js';
 import { createProject, persistProject, refreshTrashCount, switchProject, updateTimerBar } from '../tasks.js';
-import { $id, toast, toastErr } from '../utils.js';
+import { $id, esc, toast, toastErr } from '../utils.js';
 
 export let editingProjectId = null;
 
@@ -62,20 +62,22 @@ export async function saveProjectAsTemplate() {
   const p = S.projects.find(x => x.id == editingProjectId); if (!p) return;
   const name = await askPrompt('另存为项目模板', '模板名称：', p.name + '模板');
   if (!name || !name.trim()) return;
-  const tplTasks = projTasks(p.id).filter(t => t.status !== 'done').map(t => ({
-    title: t.title, note: t.note, pri: t.pri, owner: t.owner, repeat: t.repeat || '', checklistJson: t.checklistJson || '[]'
-  }));
-  const tpls = await getJsonMeta('templates', []);
-  tpls.push({ id: Date.now(), name: name.trim(), tasks: tplTasks });
-  await putJsonMeta('templates', tpls);
-  toast('已保存模板「' + name.trim() + '」（' + tplTasks.length + ' 条任务骨架），新建项目时可选用');
+  try {
+    const tplTasks = projTasks(p.id).filter(t => t.status !== 'done').map(t => ({
+      title: t.title, note: t.note, pri: t.pri, owner: t.owner, repeat: t.repeat || '', checklistJson: t.checklistJson || '[]'
+    }));
+    const tpls = await getJsonMeta('templates', []);
+    tpls.push({ id: Date.now(), name: name.trim(), tasks: tplTasks });
+    await putJsonMeta('templates', tpls);
+    toast('已保存模板「' + name.trim() + '」（' + tplTasks.length + ' 条任务骨架），新建项目时可选用');
+  } catch (e) { toastErr('保存模板失败', e); }
 }
 /* events.js 项目工具菜单入口：editingProjectId 只能由本模块赋值（导入绑定只读） */
 export function saveProjectAsTemplateOf(pid) { editingProjectId = pid; return saveProjectAsTemplate(); }
 export async function deleteProjectFlow() {
   const p = S.projects.find(x => x.id == editingProjectId); if (!p) return;
   const n = projTasks(p.id).length;
-  const ok = await askConfirm('删除项目', '确认删除项目「' + p.name + '」及其全部 ' + n + ' 条事项？<br><b>项目将进入回收站，30 天内可恢复。</b><br><br>也可先在左下角点「备份」导出 JSON。', true);
+  const ok = await askConfirm('删除项目', '确认删除项目「' + esc(p.name) + '」及其全部 ' + n + ' 条事项？<br><b>项目将进入回收站，30 天内可恢复。</b><br><br>也可先在左下角点「备份」导出 JSON。', true);
   if (!ok) return;
   try {
     await invoke('delete_project', { id: p.id });

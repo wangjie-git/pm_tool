@@ -35,10 +35,12 @@ import { cardMenuHtml, closeCardMenus, copyTodayList } from './views/today.js';
 export function closeCtxMenu() { const m = $id('ctxMenu'); if (m) m.hidden = true; }
 function positionCtxMenu(e, menu) {
   closeCardMenus();
-  const mx = Math.min(e.clientX, window.innerWidth - 250);
-  const my = Math.min(e.clientY, window.innerHeight - menu.offsetHeight - 10);
-  menu.style.left = Math.max(4, mx) + 'px';
-  menu.style.top = Math.max(4, my) + 'px';
+  /* 用菜单实际宽度做右缘钳制（菜单已显示，offsetWidth 有效），避免固定 250px 估算溢出或留空 */
+  const mw = menu.offsetWidth || 250;
+  const mx = Math.max(4, Math.min(e.clientX, window.innerWidth - mw - 8));
+  const my = Math.max(4, Math.min(e.clientY, window.innerHeight - menu.offsetHeight - 10));
+  menu.style.left = mx + 'px';
+  menu.style.top = my + 'px';
 }
 /* 侧栏项目右键动作：先切到该项目，再执行设置/模板/导出 */
 export async function ctxProjAct(pid, act) {
@@ -75,13 +77,16 @@ export function bindEvents() {
     else if (act === 'settings') openProjectSettings(p.id);
     else if (act === 'tpl') { saveProjectAsTemplateOf(p.id); }
   });
-  /* A3：点项目名打开设置后不再常驻「设置里程碑倒计时」教学提示 */
+  /* A3：点项目名打开设置后不再常驻「设置里程碑倒计时」教学提示（仅项目视图可点，与其他模式 cursor:default 一致） */
   $id('projName').onclick = () => {
     try { localStorage.setItem('pm_ms_hint_done', '1'); } catch (e) {}
+    if (S.mode !== 'project') return;
     const p = curProject(); if (p) openProjectSettings(p.id);
   };
   $id('btnQuickAdd').onclick = quickAdd;
   $id('quick').addEventListener('keydown', e => {
+    /* 中文 IME 组合态（候选词回车上屏 / 组字中）的按键不当作提交或语法符号（修：与全局键盘 A1 同规则） */
+    if (e.isComposing || e.keyCode === 229) return;
     if (e.key === 'Enter') { e.preventDefault(); quickAdd(); }
     /* A6：输入 / 呼出语法面板（空输入或空格后），不打断正常打字 */
     else if (e.code === 'Slash' && (!e.target.value.trim() || /\s$/.test(e.target.value))) {
@@ -100,6 +105,7 @@ export function bindEvents() {
     else renderView();
   });
   $id('search').addEventListener('keydown', e => {
+    if (e.isComposing || e.keyCode === 229) return; /* IME 上屏回车不触发全局搜索 */
     if (e.key === 'Enter' && e.target.value.trim()) {
       e.preventDefault();
       S.mode = 'search';
@@ -122,13 +128,13 @@ export function bindEvents() {
   $id('m-cancel').onclick = () => closeModal('mw-task');
   $id('m-del').onclick = () => askDelTask(editingTaskId);
   $id('m-cl-add').onclick = clAdd;
-  $id('m-cl-input').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); clAdd(); } });
+  $id('m-cl-input').addEventListener('keydown', e => { if (e.isComposing || e.keyCode === 229) return; if (e.key === 'Enter') { e.preventDefault(); clAdd(); } });
   $id('m-risk').onchange = updateRiskEditor;
   $id('m-prob').onchange = updateRiskEditor;
   $id('m-impact').onchange = updateRiskEditor;
   $id('m-proj').onchange = onProjectChange;
-  $id('m-title').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); saveTaskModal(false); } });
-  $id('m-note').addEventListener('keydown', e => { if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); saveTaskModal(false); } });
+  $id('m-title').addEventListener('keydown', e => { if (e.isComposing || e.keyCode === 229) return; if (e.key === 'Enter') { e.preventDefault(); saveTaskModal(false); } });
+  $id('m-note').addEventListener('keydown', e => { if (e.isComposing || e.keyCode === 229) return; if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); saveTaskModal(false); } });
   $id('m-note').addEventListener('input', updateClSummary);
   $id('m-note').addEventListener('paste', pasteNoteImage);
 
@@ -140,7 +146,7 @@ export function bindEvents() {
 
   $id('np-create').onclick = createProjectFromModal;
   $id('np-cancel').onclick = () => closeModal('mw-newproj');
-  $id('np-name').addEventListener('keydown', e => { if (e.key === 'Enter') createProjectFromModal(); });
+  $id('np-name').addEventListener('keydown', e => { if (e.isComposing || e.keyCode === 229) return; if (e.key === 'Enter') createProjectFromModal(); });
   $id('np-del-tpl').onclick = deleteTemplateFromModal;
 
   $id('r-copy').onclick = copyReport;
@@ -190,12 +196,14 @@ export function bindEvents() {
   $id('at-import').onclick = aiImportParsed;
   $id('at-cancel').onclick = () => closeModal('mw-aitask');
   $id('at-input').addEventListener('keydown', e => {
+    if (e.isComposing || e.keyCode === 229) return;
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); aiParseTasks(); }
   });
   $id('m-cl-ai').onclick = aiGenChecklist;
   $id('pr-ok').onclick = () => answerPrompt($id('pr-input').value.trim());
   $id('pr-cancel').onclick = () => answerPrompt(null);
   $id('pr-input').addEventListener('keydown', e => {
+    if (e.isComposing || e.keyCode === 229) return; /* IME 上屏回车不提交 prompt */
     if (e.key === 'Enter') answerPrompt($id('pr-input').value.trim());
   });
 
@@ -209,7 +217,7 @@ export function bindEvents() {
   $id('mt-cancel').onclick = () => closeModal('mw-meeting');
   $id('mt-del').onclick = deleteMeetingFlow;
   $id('mt-item-add').onclick = mtItemAdd;
-  $id('mt-item-input').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); mtItemAdd(); } });
+  $id('mt-item-input').addEventListener('keydown', e => { if (e.isComposing || e.keyCode === 229) return; if (e.key === 'Enter') { e.preventDefault(); mtItemAdd(); } });
   /* 干系人 */
   $id('ct-save').onclick = saveContactModal;
   $id('ct-cancel').onclick = () => closeModal('mw-contact');
@@ -237,13 +245,13 @@ export function bindEvents() {
   document.addEventListener('click', handleWikilinkClick);
   /* ---------- 右键菜单（动线2）：卡片 = ⋯ 菜单同款；侧栏项目 = 设置/模板/导出 ---------- */
   document.addEventListener('contextmenu', e => {
-    if (e.target.closest && e.target.closest('input, textarea, select')) return;
+    if (e.target.closest && e.target.closest('input, textarea, select')) { closeCtxMenu(); return; }
     const menu = $id('ctxMenu');
     const card = e.target.closest ? e.target.closest('.card[data-id]') : null;
     if (card) {
       e.preventDefault();
       const t = getTask(+card.getAttribute('data-id'));
-      if (!t) return;
+      if (!t) { closeCtxMenu(); return; }
       menu.innerHTML = cardMenuHtml(t);
       menu.hidden = false;
       positionCtxMenu(e, menu);
@@ -285,6 +293,7 @@ export function bindEvents() {
   /* 命令面板输入 */
   $id('pal-input').addEventListener('input', e => renderPalette(e.target.value));
   $id('pal-input').addEventListener('keydown', e => {
+    if (e.isComposing || e.keyCode === 229) return; /* IME 组合态的方向键/回车交给输入法 */
     if (e.key === 'ArrowDown') { e.preventDefault(); palMove(1); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); palMove(-1); }
     else if (e.key === 'Enter') { e.preventDefault(); palPick(palIdx); }

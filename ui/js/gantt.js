@@ -134,7 +134,7 @@ export function renderTimeline() {
     else if (t.isMilestone) fill = '#9775fa';
     if (t.isMilestone && !r.isParent) {
       const cx = dayX(t.due || ganttBarDates(t).due) + px / 2, cy = y + 9;
-      sv.push('<path d="M ' + cx + ' ' + (cy - 9) + ' L ' + (cx + 9) + ' ' + cy + ' L ' + cx + ' ' + (cy + 9) + ' L ' + (cx - 9) + ' ' + cy + ' Z" fill="' + (t.status === 'done' ? '#2f9e44' : '#9775fa') + '"><title>' + esc(t.title) + '（里程碑 ' + (t.due || '') + '）</title></path>');
+      sv.push('<path class="gantt-ms" data-id="' + t.id + '" d="M ' + cx + ' ' + (cy - 9) + ' L ' + (cx + 9) + ' ' + cy + ' L ' + cx + ' ' + (cy + 9) + ' L ' + (cx - 9) + ' ' + cy + ' Z" fill="' + (t.status === 'done' ? '#2f9e44' : '#9775fa') + '"><title>' + esc(t.title) + '（里程碑 ' + (t.due || '') + '）</title></path>');
       return;
     }
     const cls = isOpen(t) && t.status !== 'wait' && t.due && t.due < TODAY ? ' gantt-over' : '';
@@ -238,6 +238,9 @@ export function bindGanttDrag() {
   svg.addEventListener('mousedown', e => {
     const bar = e.target.closest ? e.target.closest('.gbar') : null;
     if (!bar) {
+      /* 里程碑渲染为 <path class="gantt-ms">（无 gbar 类）：拖它不得触发「空白拖画新建」，
+       * 否则拖动菱形会误弹新建任务弹窗并预填错误日期 */
+      if (e.target.closest && e.target.closest('.gantt-ms')) return;
       /* 空白格拖画新建：起一个临时选区矩形 */
       if (e.button !== 0 || !S.ganttWin) return;
       const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
@@ -291,6 +294,14 @@ document.addEventListener('mousemove', e => {
   else { start = addDays(gdrag.start, delta); if (start > due) start = due; }
   gdrag.ns = start; gdrag.nd = due;
   gdrag.bar.setAttribute('title', t.title + ' · ' + start + ' → ' + due);
+  /* 拖拽实时反馈：同步移动条的位置/宽度（与渲染几何一致：dayX + px 右缘） */
+  const mn = S.ganttWin && S.ganttWin.mn;
+  if (mn) {
+    const x = Math.round((new Date(start) - new Date(mn)) / 86400000) * gdrag.px;
+    const x2 = Math.round((new Date(due) - new Date(mn)) / 86400000) * gdrag.px + gdrag.px;
+    gdrag.bar.setAttribute('x', x);
+    gdrag.bar.setAttribute('width', Math.max(6, x2 - x));
+  }
 });
 document.addEventListener('mouseup', async e => {
   if (cdrag) {

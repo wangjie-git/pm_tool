@@ -18,7 +18,7 @@ import { exportStatsPng, runForecast, setStatsRange } from './stats.js';
 import { batchDeleteSel, batchMoveSel, batchSnoozeSel, batchStatus, clearSelection, cycleStatus, delTaskById, purgeTrash, restoreTrash, setStatus, snoozeTask, stopTimerFlow, switchProject, toggleFrog } from './tasks.js';
 import { $id, copyText } from './utils.js';
 import { exportProjectMd, saveOnePager, toggleOnePagerEditor } from './views/archive.js';
-import { calGoToday, calNav, calNewAt, calShowDay } from './views/calendar.js';
+import { calClosePop, calGoToday, calNav, calNewAt, calShowDay } from './views/calendar.js';
 import { deleteContactFlow, logContactInteraction, openContactModal } from './views/contacts.js';
 import { dailyNoteGoToday, dailyNoteNav, saveDailyNoteText } from './views/dailynote.js';
 import { openDecisionModal } from './views/decisions.js';
@@ -31,7 +31,7 @@ import { setListSort } from './views/board.js';
 
 Object.assign(window, {
   $id, adoptSuggestion, aiPickModel, aiPickProfile, assignInbox, batchDeleteSel, batchMoveSel, batchSnoozeSel, batchStatus,
-  calGoToday, calNav, calNewAt, calShowDay, cancelIdeaEdit, cardMenuAct, cardTitleClick, clearSearch, clearSelection, clRemove, clToggle,
+  calClosePop, calGoToday, calNav, calNewAt, calShowDay, cancelIdeaEdit, cardMenuAct, cardTitleClick, clearSearch, clearSelection, clRemove, clToggle,
   copyText, cycleStatus, dailyNoteGoToday, dailyNoteNav, delTaskById, deleteContactFlow, deleteIdea, deleteSmartView, editIdea,
   ctxProjAct,
   exportGanttPng, exportProjectMd, exportProjectXlsx, exportStatsPng, focusQuickAdd, ganttNewAtRange, ganttNewMilestone, ganttPan, ganttSetZoom,

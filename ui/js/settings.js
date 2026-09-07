@@ -37,8 +37,14 @@ export async function openSettings() {
   stShowSection('general');
   openModal('mw-settings');
 }
+let svSaving = false; /* 保存中防重：双击只执行一轮写库与一条提示 */
 export async function saveSettings() {
-  S.rules = {
+  if (svSaving) return;
+  svSaving = true;
+  const sb = $id('st-save');
+  if (sb) { sb.disabled = true; sb.textContent = '⏳ 保存中…'; }
+  try {
+    S.rules = {
     overdueTop: $id('st-overdueTop').checked ? 1 : 0,
     staleCleanup: $id('st-staleCleanup').checked ? 1 : 0,
     doneStopTimer: $id('st-doneStopTimer').checked ? 1 : 0,
@@ -58,7 +64,7 @@ export async function saveSettings() {
     await invoke('set_quick_hotkey', { hotkey: hk });
     await invoke('set_meta', { key: 'quickHotkey', value: hk === 'off' ? '' : hk });
   } catch (e) { toastErr('设置全局热键失败', e); }
-  S.dailyGoal = Math.max(0, +$id('st-goal').value || 5);
+  S.dailyGoal = (() => { const g = +$id('st-goal').value; return (Number.isFinite(g) && g >= 0) ? Math.round(g) : 5; })(); /* 0 = 关闭任务栏进度；空/非法 = 默认 5 */
   await invoke('set_meta', { key: 'dailyGoal', value: String(S.dailyGoal) });
   /* 卡片密度（动线1）：紧凑默认，舒适可选 */
   S.density = $id('st-density').checked ? 'compact' : 'cozy';
@@ -71,6 +77,10 @@ export async function saveSettings() {
   closeModal('mw-settings');
   render();
   toast('设置已保存' + (S.shutdownTime ? '，每天 ' + S.shutdownTime + ' 弹收尾三问' : '，收尾问答已关闭'));
+  } finally {
+    svSaving = false;
+    if (sb) { sb.disabled = false; sb.textContent = '保存'; }
+  }
 }
 /* ============ 主题 ============ */
 export function applyTheme() {

@@ -9,15 +9,17 @@ import { ganttBarDates } from './gantt.js';
 export async function getShutdownMeta(dateStr) {
   return getJsonMeta('shutdown_' + dateStr, null);
 }
+export let reportOpenSeq = 0; /* 报告生成序号：快速连点日报/周报时后点击者胜，防止先发请求晚返回覆盖新预览（aiPolishReport 也用） */
 export async function openReport(kind) {
   const p = curProject(); if (!p) return;
+  const seq = ++reportOpenSeq;
   const s = parseSettings(p);
   const ts = projTasks(p.id);
   let out = '';
   if (kind === 'day') {
     const yest = addDays(TODAY, -1);
     const doneL = ts.filter(t => t.status === 'done' && t.doneAt === yest);
-    const planL = ts.filter(t => (t.status === 'todo' || t.status === 'doing') && t.due <= TODAY).sort((a, b) => a.due < b.due ? -1 : 1);
+    const planL = ts.filter(t => (t.status === 'todo' || t.status === 'doing') && t.due && t.due <= TODAY).sort((a, b) => a.due < b.due ? -1 : 1);
     const riskL = ts.filter(t => t.risk && t.status !== 'done')
       .slice().sort((a, b) => riskValue(b) - riskValue(a));
     out = '【' + s.report + '】' + TODAY + '\n\n一、昨日完成：\n';
@@ -54,12 +56,15 @@ export async function openReport(kind) {
         out += '\n\n五、今日投入：' + (mins / 60).toFixed(1) + ' 小时（' + mine.length + ' 段计时）';
       }
     } catch (e) {}
-    /* 包1 #4：日报附预算燃烧率 */
+    /* 包1 #4：日报附预算燃烧率（已用=全量累计；燃烧=近 7 天折算） */
     if (s.budgetHours > 0) {
       try {
-        const logs = await invoke('get_time_logs', { since: addDays(TODAY, -7) }) || [];
-        const usedAll = logs.filter(l => l.projectId == p.id).reduce((x, l) => x + (l.minutes || 0), 0) / 60;
-        const burnWk = logs.filter(l => l.projectId == p.id).reduce((x, l) => x + (l.minutes || 0), 0) / 60;
+        const [allLogs, wkLogs] = await Promise.all([
+          invoke('get_time_logs', { since: '2000-01-01' }).catch(() => []),
+          invoke('get_time_logs', { since: addDays(TODAY, -7) }).catch(() => [])
+        ]);
+        const usedAll = (allLogs || []).filter(l => l.projectId == p.id).reduce((x, l) => x + (l.minutes || 0), 0) / 60;
+        const burnWk = (wkLogs || []).filter(l => l.projectId == p.id).reduce((x, l) => x + (l.minutes || 0), 0) / 60;
         const pct = Math.round(usedAll / s.budgetHours * 100);
         out += '\n\n六、工时预算：已用 ' + usedAll.toFixed(1) + ' / ' + s.budgetHours + ' 小时（' + pct + '%），近 7 天燃烧 ' + burnWk.toFixed(1) + ' 小时/周。';
       } catch (e) {}
@@ -115,6 +120,7 @@ export async function openReport(kind) {
     }
     out += '\n\n—— 在本机点开项目：pm-todo://project/' + p.id;
   }
+  if (seq !== reportOpenSeq) return; /* 期间又点了日报/周报：本次结果作废，避免旧报告覆盖新预览 */
   $id('r-title').textContent = kind === 'day' ? '日报预览（发送前补全括号内容）' : '周报预览（发送前核对日期范围）';
   $id('r-kind').value = kind;
   $id('r-area').value = out;
@@ -143,18 +149,24 @@ export function copyReport() {
   copyText($id('r-area').value, '已复制，去微信/邮件粘贴即可');
 }
 /* 日报/周报一键发到群机器人（#8）：企微/钉钉/飞书 Webhook */
+let reportSending = false; /* 发送中防护：多段发送期间忽略重复点击，避免向群里重复推送 */
 export async function sendReportToGroup() {
+  if (reportSending) return;
   const p = curProject(); if (!p) return;
   const s = parseSettings(p);
   const wh = s.webhook || {};
   if (!wh.type || !wh.url) { toast('先在项目设置里配置群机器人 Webhook', 'err'); return; }
   const text = $id('r-area').value;
+  if (!text.trim()) { toast('报告内容是空的，先写点内容再发', 'err'); return; }
   let body;
   if (wh.type === 'feishu') body = { msg_type: 'text', content: { text: text } };
   else body = { msgtype: 'text', text: { content: text } };
   /* 企业微信/钉钉单条上限约 4096 字节：中文 UTF-8 每字 3 字节，必须按字节而非字符数分段 */
   const chunks = chunkByUtf8Bytes(text, 3000);
   if (!chunks.length) chunks.push('');
+  const btn = $id('r-wh');
+  reportSending = true;
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ 发送中…'; }
   try {
     for (let i = 0; i < chunks.length; i++) {
       const b = wh.type === 'feishu' ? { msg_type: 'text', content: { text: chunks[i] } } : { msgtype: 'text', text: { content: chunks[i] } };
@@ -166,6 +178,10 @@ export async function sendReportToGroup() {
     toast('已发送到' + ({ wecom: '企业微信', dingtalk: '钉钉', feishu: '飞书' }[wh.type]) + '群（' + chunks.length + ' 条消息）');
     if ($id('r-kind').value === 'week') await saveWeekBaseline(p.id);
   } catch (e) { toastErr('发送失败', e); }
+  finally {
+    reportSending = false;
+    if (btn) { btn.disabled = false; btn.textContent = '📤 发到群（' + ({ wecom: '企业微信', dingtalk: '钉钉', feishu: '飞书' }[wh.type] || wh.type) + '）'; }
+  }
 }
 /* ★★☆ 周报基线快照：发送周报时保存当前任务起止分布，时间线「🫥 上周对比」叠加虚影看计划漂移 */
 export async function saveWeekBaseline(pid) {

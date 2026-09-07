@@ -142,7 +142,7 @@ export async function meetingItemToDecision(meetingId, idx) {
   const it = items[idx]; if (!it) return;
   try {
     const d = {
-      id: 0, projectId: m.projectId || 0, title: it.text,
+      id: 0, projectId: m.projectId || (curProject() ? curProject().id : 0), title: it.text,
       background: '来自会议「' + m.title + '」（' + m.date + '）' + (m.conclusion ? '\n结论：' + m.conclusion : ''),
       options: '', decision: it.text, reason: '', date: m.date || TODAY,
       status: '生效中', taskId: 0, meetingId: meetingId, createdAt: ''

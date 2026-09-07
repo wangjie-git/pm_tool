@@ -32,7 +32,7 @@ export function makeMockBackend() {
     args = args || {};
     switch (cmd) {
       case 'load_app':
-        return { projects: clone(db.projects), tasks: clone(db.tasks), ideas: clone(db.ideas), timeLogs: [],
+        return { projects: clone(db.projects), tasks: clone(db.tasks), ideas: clone(db.ideas), timeLogs: clone(db.timeLogs),
           decisions: clone(db.decisions), meetings: clone(db.meetings), contacts: clone(db.contacts) };
       case 'upsert_task': {
         const t = clone(args.task);
@@ -241,7 +241,8 @@ if (!window.__TAURI__) {
   const mock = makeMockBackend();
   window.__TAURI__ = {
     core: { invoke: mock },
-    dialog: { save: async () => null, open: async () => null }
+    dialog: { save: async () => null, open: async () => null },
+    _isMock: true
   };
 }
 export const invoke = window.__TAURI__.core.invoke;
@@ -251,7 +252,7 @@ export const TDialog = () => window.__TAURI__.dialog;
 export async function getJsonMeta(key, fallback) {
   try {
     const v = await invoke('get_meta', { key: key });
-    if (!v) return fallback;
+    if (v == null) return fallback; /* 只有没存过才算缺失：'0'/'false'/空串 都是合法存储值 */
     const p = JSON.parse(v);
     return p == null ? fallback : p;
   } catch (e) { return fallback; }

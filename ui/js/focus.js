@@ -9,6 +9,7 @@ import { $id, pad, toast, toastErr } from './utils.js';
 
 /* ============ 包4 #17：专注会话（全屏视图 + 可选倒计时 + 一句收尾） ============ */
 export let focusTickTimer = null;
+let focusFinishing = false; /* 双击「结束专注」防重：第二次调用直接忽略，避免 0 分钟覆写与重复通知 */
 
 export function openFocusOverlay() {
   if (!S.timer) { toast('先在任务卡上点 ⏱ 开始计时', 'info'); return; }
@@ -16,6 +17,7 @@ export function openFocusOverlay() {
   $id('fc-task').textContent = t ? t.title : '（任务不存在）';
   $id('fc-time').textContent = timerText(S.timer.startedAt);
   $id('fc-wrap').hidden = true;
+  $id('fc-note').value = ''; /* 清上一轮未保存的收尾文字，防止误提交旧笔记 */
   document.querySelector('input[name="fc-mode"][value="up"]').checked = true;
   openModal('mw-focus');
   if (focusTickTimer) clearInterval(focusTickTimer);
@@ -48,6 +50,8 @@ export function focusTick() {
   }
 }
 export async function focusFinish() {
+  if (focusFinishing) return; /* 双击防护：第二次点击直接忽略 */
+  focusFinishing = true;
   if (focusTickTimer) { clearInterval(focusTickTimer); focusTickTimer = null; }
   const t = getTask(S.timer ? S.timer.taskId : 0);
   try {
@@ -61,6 +65,7 @@ export async function focusFinish() {
   } catch (e) { toastErr('停止计时失败', e); closeModal('mw-focus'); }
   render();
   updateTaskbarProgress();
+  focusFinishing = false;
 }
 export async function saveFocusNote() {
   const note = $id('fc-note').value.trim();
