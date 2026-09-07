@@ -1160,8 +1160,10 @@ select.q-proj { max-width: 150px; }
 .sugg-chip:hover { text-decoration: underline; }
 .inbox-sugg-head { color: var(--muted); font-size: 12px; margin: 0 0 10px; padding: 6px 10px; background: var(--accent-soft); border-radius: 9px; }
 
-/* --- 右键菜单（动线2） --- */
-.ctx-menu { position: fixed; z-index: 220; top: 0; left: 0; }
+/* --- 右键菜单（动线2） ---
+ * 注意：.menu-pop 自带 right:0 / absolute 定位，.ctx-menu 必须显式还原 right，
+ * 否则 fixed + left+right 同设会让菜单横向铺满整窗（右键菜单“遮挡”大半屏）。 */
+.ctx-menu { position: fixed; z-index: 220; top: 0; left: 0; right: auto; width: max-content; }
 
 /* --- 设置：AI 供应商行内间距微调 --- */
 .st-sec .hint b { color: var(--text); }

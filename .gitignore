@@ -12,6 +12,7 @@ tools/wx_read.json
 # 本地临时文件与运行数据
 .grep-*.txt
 tools/hook_received.jsonl
+.qa-tmp/
 
 # 本地备份与交付产物
 *.bak-*
